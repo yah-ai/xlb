@@ -1,0 +1,26 @@
+[package]
+name = "xlb-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "xlb CLI — serve a node, inspect state, trigger fetches, live TUI dashboard"
+publish = false
+
+[[bin]]
+name = "xlb"
+path = "src/main.rs"
+
+[dependencies]
+xlb     = { path = "../xlb" }
+xlb-net = { path = "../xlb-net" }
+tokio   = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "signal"] }
+serde   = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap    = { version = "4", features = ["derive"] }
+ratatui   = "0.29"
+crossterm = "0.28"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow  = "1"

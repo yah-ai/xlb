@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "yah": {
+      "args": [
+        "mcp"
+      ],
+      "command": "yah"
+    }
+  }
+}

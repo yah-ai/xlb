@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MachineConfig",
+  "description": "Per-machine TOML from `.yah/cloud/machines/<name>.toml`.",
+  "type": "object",
+  "required": [
+    "hosts_mirrors",
+    "location",
+    "mesh_tags",
+    "name",
+    "provider",
+    "server_type"
+  ],
+  "properties": {
+    "bucket": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BucketSpec"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "cloudflared": {
+      "description": "Cloudflare Tunnel ID this machine joins (e.g. `abc123.cfargotunnel.com`). `None` → no tunnel (mesh-only node, no public ingress). When set, `yah cloud machine provision` reads `cloudflare-tunnel-token` from the keys vault and injects the cloudflared install block into cloud-init so the new machine connects to CF edge on first boot.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hostkey_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "hosts_mirrors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hosts_operator_bridge": {
+      "description": "When `true`, this machine hosts operator-bridge workloads (Tailscale operator access to mesh-internal services). `yah cloud machine provision` will install tailscaled and run `tailscale up` during cloud-init via the `{{OPERATOR_BRIDGE_BLOCK}}` placeholder. Defaults to `false` for backward-compat with existing machine declarations.",
+      "default": false,
+      "type": "boolean"
+    },
+    "location": {
+      "type": "string"
+    },
+    "mesh_tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "name": {
+      "type": "string"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "server_type": {
+      "type": "string"
+    },
+    "ssh_keys": {
+      "description": "Provider-side SSH-key IDs (Hetzner: from `GET /v1/ssh_keys`) authorized for `root` at create time. Defaults to empty for backwards-compat with existing machine declarations; an empty list yields a Hetzner-emailed random root password (which the driver currently discards). Populate this when you want pre-mesh SSH access for bootstrap deploys or recovery.",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0.0
+      }
+    }
+  },
+  "definitions": {
+    "BucketSpec": {
+      "type": "object",
+      "required": [
+        "name",
+        "public_read"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "public_read": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

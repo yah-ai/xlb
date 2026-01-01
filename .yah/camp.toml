@@ -1,0 +1,48 @@
+#:schema ./schema/camp.toml.schema.json
+
+# Per-camp config for yah. Replaces the pre-R179 trio of camp.json,
+# agent-settings.json, and approval.toml.
+#
+# Schema  : .yah/schema/camp.toml.schema.json (drives Taplo editor validation)
+# Loader  : crates/yah/kg-store/src/camp_config.rs::CampConfig
+# Approval: crates/yah/agent-tools/src/approval.rs
+#
+# Every section is optional — yah falls back to defaults when a section is
+# missing or malformed. The values below are the recommended starting point;
+# delete what you don't need and uncomment what you do.
+
+# name = "my-camp"                 # human-readable; defaults to the dir name
+# viewports = ["packages/foo"]     # subdirs that surface as viewports
+
+# [defaults]                       # desktop UI selections
+# tab = "party"
+# arch_depth = 2
+
+# [agent]                          # per-camp agent runtime flags
+# version = 1
+# writers_enabled = false          # set true to let agents edit files
+# mcp_debug = false                # set true to log MCP traffic
+
+[approval.board]
+# Write-verb policy for board.* MCP tools.
+#   "prompt" — every write surfaces a Continue/Revise modal (yah default).
+#   "auto"   — auto-pass writes; pick this for parties that sweep tickets
+#              without operator attention on every verb.
+writes = "auto"
+
+# [approval.bash]                  # not yet enforced — schema preview only
+# # AST-matched bash allowlist. The gate parses each bash call into a
+# # BashCall { cmd, args, env } before matching, so an allow for `git`
+# # never accidentally covers `git push --force` — you spell the args
+# # out, no regex involved. Rule shapes are defined in
+# # crates/yah/agent-tools/src/approval.rs (ApprovalRule).
+# allow = [
+#   { kind = "bash_cmd",        cmd = "git status" },
+#   { kind = "bash_cmd_pattern", cmd = "git",
+#     args = [{ kind = "exact", value = "log" }, { kind = "any" }] },
+# ]
+# deny = [
+#   { kind = "bash_cmd_pattern", cmd = "git",
+#     args = [{ kind = "exact", value = "push" },
+#             { kind = "exact", value = "--force" }] },
+# ]

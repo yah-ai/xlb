@@ -1,0 +1,132 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MirrorConfig",
+  "description": "A service mirror — the projection of a [`ServiceConfig`] onto concrete infra. Lives at `.yah/services/<svc>/mirrors/<env>.toml`.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "shape"
+  ],
+  "properties": {
+    "providers": {
+      "description": "Provider slots, keyed by role (`\"static\"`, `\"compute\"`, …). Each value either references a provider declared under `.yah/infra/providers/` or inlines a local-only provider (no creds, no infra file).",
+      "default": {},
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/MirrorProviderSlot"
+      }
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    },
+    "shape": {
+      "$ref": "#/definitions/MirrorShape"
+    }
+  },
+  "definitions": {
+    "MirrorProviderSlot": {
+      "description": "A provider slot inside a [`MirrorConfig`]. Two shapes: - **Reference** (`use = \"<provider-id>\"`) — point at an infra-declared provider; extra fields are slot-specific (bucket, zone, dns, …). - **Inline** (`kind = \"local-*\"`) — for providers that need no infra declaration because they carry no credentials.",
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "use"
+          ],
+          "properties": {
+            "use": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "$ref": "#/definitions/Provider"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "MirrorShape": {
+      "description": "Topological shape of a mirror — how its providers sit relative to each other.",
+      "oneOf": [
+        {
+          "description": "Single machine hosts compute (and any non-Cloudflare-fronted static).",
+          "type": "string",
+          "enum": [
+            "single-machine"
+          ]
+        },
+        {
+          "description": "Operator-local dev mirror — static via built-in file server, compute via the local container runtime.",
+          "type": "string",
+          "enum": [
+            "local"
+          ]
+        },
+        {
+          "description": "Multi-machine deployment (machines listed per provider slot).",
+          "type": "string",
+          "enum": [
+            "multi-machine"
+          ]
+        }
+      ]
+    },
+    "Provider": {
+      "description": "Tag for the infrastructure provider kind. Drives which fields are valid in a [`ProviderConfig`] body or a [`MirrorProviderSlot::Inline`] block.\n\nTwo flavors: - **Account/runtime providers** (`cloudflare`, `hetzner`, `local-container`) live as files under `.yah/infra/providers/<id>.toml` and are referenced from a mirror via `use = \"<id>\"`. - **Inline-only providers** (`local-static`, `caddy-container`, `minio-container`) declare an operator-local stand-in directly inside a mirror via `kind = \"...\"`. They carry no credentials and have no provider file. The container-backed kinds ride on top of whichever `local-container` runtime is declared in infra (orbstack/colima/docker); the reconciler resolves the runtime at up-time.",
+      "oneOf": [
+        {
+          "description": "Cloudflare account: R2 buckets, DNS, Workers, Tunnels.",
+          "type": "string",
+          "enum": [
+            "cloudflare"
+          ]
+        },
+        {
+          "description": "Hetzner Cloud + Object Storage account.",
+          "type": "string",
+          "enum": [
+            "hetzner"
+          ]
+        },
+        {
+          "description": "Built-in static-file server bound to localhost. Inline-only; never declared as a standalone provider file because it carries no creds.",
+          "type": "string",
+          "enum": [
+            "local-static"
+          ]
+        },
+        {
+          "description": "Local container runtime (orbstack/colima/docker). Configured by a provider file under `.yah/infra/providers/` so the discovery hints + runtime override sit in one place.",
+          "type": "string",
+          "enum": [
+            "local-container"
+          ]
+        },
+        {
+          "description": "Containerized Caddy fronting an object store — the local-sim stand-in for a CDN-fronted static surface (`cloudflare` in prod). Inline-only; the reconciler spins up the container on the local-container runtime and points Caddy's origin at the sibling `object_store` slot.",
+          "type": "string",
+          "enum": [
+            "caddy-container"
+          ]
+        },
+        {
+          "description": "Containerized MinIO providing an S3-compatible API — the local-sim stand-in for Cloudflare R2. Inline-only; the reconciler spins up the container on the local-container runtime and auto-creates the declared bucket on first up.",
+          "type": "string",
+          "enum": [
+            "minio-container"
+          ]
+        }
+      ]
+    }
+  }
+}

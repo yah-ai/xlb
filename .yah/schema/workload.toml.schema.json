@@ -1,0 +1,1552 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Workload",
+  "description": "On-disk `workload.toml` manifest. Each variant matches one `ServiceComponent.kind` value; the `kind` field on the wire is the serde discriminator.\n\nThis is the **on-disk** envelope — distinct from [`WorkloadSpec`], the containerd wire format warden receives over RPC. A `kind = \"container\"` workload deserializes its remaining fields as a `WorkloadSpec`; other kinds carry their own per-reconciler payload shape.",
+  "oneOf": [
+    {
+      "description": "Static-site build that publishes an artifact directory to the service's `static` provider slot. Reconciled by the `mesofact-static` reconciler — does not deploy to warden.",
+      "type": "object",
+      "required": [
+        "build",
+        "kind",
+        "routes",
+        "schema_version"
+      ],
+      "properties": {
+        "build": {
+          "description": "Build command + output directory.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BuildConfig"
+            }
+          ]
+        },
+        "build_mode": {
+          "description": "Where the build command runs. Default: `HostSide` (mesofact-dev on the host). Set to `InContainer` for cloud/HA where no host watcher is present and CI-fidelity build environments are required.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/BuildMode"
+            }
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "mesofact-static"
+          ]
+        },
+        "routes": {
+          "description": "Path (relative to the manifest) of the routes module the `mesofact-static` reconciler reads to enumerate routes.",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "Wire-format version. Always `V1` today.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SchemaVersion"
+            }
+          ]
+        },
+        "ssr_runtime": {
+          "description": "Optional SSR/SPA runtime companion container.\n\n`None` → pure static site; Caddy (or equivalent CDN) serves all requests directly from the object store. This is the common case for dev-yah today.\n\n`Some` → the workload spec describes a long-lived container that handles dynamic/SSR requests. Caddy routes static asset paths to the object store and all other paths to this container. The companion uses `RestartPolicy::Always`; the orchestrator (camp or warden) ensures it stays up alongside the Caddy edge.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkloadSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "description": "Containerd workload handed to warden over RPC. The inline fields are the full [`WorkloadSpec`] minus the `kind` discriminator.",
+      "type": "object",
+      "required": [
+        "expose",
+        "image",
+        "kind",
+        "name",
+        "replicas",
+        "resources",
+        "restart_policy",
+        "schema_version",
+        "stop_policy",
+        "tier"
+      ],
+      "properties": {
+        "annotations": {
+          "description": "Yah-specific metadata, conventionally prefixed `yah.*`. Opaque to warden beyond `yah.forge=true` which suppresses the Never-restart guard.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "description": "Override the image's `CMD`. `None` leaves the image default.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "depends_on": {
+          "description": "Mesh idents that must reach `Ready` before this workload starts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeshIdent"
+          }
+        },
+        "entrypoint": {
+          "description": "Override the image's `ENTRYPOINT`. `None` leaves the image default.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "description": "Environment variables. Values may be literals, secret refs, or mesh-address references resolved by warden at deploy time.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EnvVar"
+          }
+        },
+        "expose": {
+          "description": "Network exposure configuration — mesh, public, and operator channels are independent and can be set in any combination.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExposeSpec"
+            }
+          ]
+        },
+        "healthcheck": {
+          "description": "Container liveness/readiness probe.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Healthcheck"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "image": {
+          "description": "Container image to pull.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ImageRef"
+            }
+          ]
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "container"
+          ]
+        },
+        "labels": {
+          "description": "OCI-style labels, passed through to the container. Opaque to warden.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "DNS-friendly workload name, e.g. `\"noisetable-api\"`. Regex: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, length ≤ 63.",
+          "type": "string"
+        },
+        "replicas": {
+          "description": "Target replica count. `0` registers the workload without deploying it. Range: 0–100 (cluster-wide cap; operator can raise it).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "resources": {
+          "description": "Hard resource caps enforced by containerd/cgroups.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResourceLimits"
+            }
+          ]
+        },
+        "restart_policy": {
+          "description": "What warden does when the container exits.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RestartPolicy"
+            }
+          ]
+        },
+        "schema_version": {
+          "description": "Wire-format version; always `V1` today. Present at the top level so rolling clusters can detect and migrate across schema generations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SchemaVersion"
+            }
+          ]
+        },
+        "secrets": {
+          "description": "Secret mounts. Values never appear in the spec JSON — only references.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SecretMount"
+          }
+        },
+        "stop_policy": {
+          "description": "Graceful shutdown configuration.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/StopPolicy"
+            }
+          ]
+        },
+        "tier": {
+          "description": "Tier tag controlling admission control and mesh filtering.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TierTag"
+            }
+          ]
+        },
+        "user": {
+          "description": "User to run as, e.g. `\"1000:1000\"` or `\"appuser\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "volumes": {
+          "description": "Volume mounts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VolumeMount"
+          }
+        },
+        "workdir": {
+          "description": "Working directory inside the container.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    {
+      "description": "Data-pipeline job with declared I/O and a readiness policy. The orchestrator checks all `inputs` are reachable before each run and verifies `outputs` afterward. Generalises the OpenRouter JSON-cache refresher (`spawn_almanac_refresher`) to the full manifest form.",
+      "type": "object",
+      "required": [
+        "cadence",
+        "command",
+        "kind",
+        "schema_version"
+      ],
+      "properties": {
+        "cadence": {
+          "description": "When to run.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Cadence"
+            }
+          ]
+        },
+        "command": {
+          "description": "Shell command executed via `sh -c` from the workload directory.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Input targets that must be reachable before the command runs. Empty list → no precondition checks (degenerate case).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AlmanacTarget"
+          }
+        },
+        "invalidates": {
+          "description": "Mesh identities of workloads to notify after a successful run. The orchestrator sends a cache-bust signal to each entry so downstream consumers can reload their data (e.g. mesofact-dev triggers a rebuild when the OpenRouter cache refreshes). Empty list → no downstream invalidation.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeshIdent"
+          }
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "almanac"
+          ]
+        },
+        "not_ready_policy": {
+          "description": "What to do when a precondition check fails. Default: `WaitWithTimeout { timeout: 5000ms }`.",
+          "default": {
+            "policy": "wait_with_timeout",
+            "timeout": 5000
+          },
+          "allOf": [
+            {
+              "$ref": "#/definitions/NotReadyPolicy"
+            }
+          ]
+        },
+        "outputs": {
+          "description": "Output targets verified after a successful run. Empty list → no post-run verification.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AlmanacTarget"
+          }
+        },
+        "schema_version": {
+          "description": "Wire-format version. Always `V1` today.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SchemaVersion"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "AlmanacTarget": {
+      "description": "An observable endpoint the almanac scheduler probes to check readiness.\n\nUsed for both inputs (checked before the run) and outputs (verified after a successful run to confirm the job produced something reachable). The probe is intentionally lightweight — no S3 SigV4, no xlb-net discovery required; a simple TCP connect or HTTP GET is enough for the dev/sim tier.",
+      "oneOf": [
+        {
+          "description": "Issue an HTTP GET to `url`; ready when the server responds with `expect_status` (default: any 2xx).",
+          "type": "object",
+          "required": [
+            "kind",
+            "url"
+          ],
+          "properties": {
+            "expect_status": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "minimum": 0.0
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "http"
+              ]
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Establish a TCP connection to `host:port`; ready when the connect succeeds. Used for non-HTTP services (e.g. MinIO API on port 9000) and as a lighter probe when an HTTP endpoint isn't stable yet.",
+          "type": "object",
+          "required": [
+            "host",
+            "kind",
+            "port"
+          ],
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "tcp"
+              ]
+            },
+            "port": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0.0
+            }
+          }
+        }
+      ]
+    },
+    "BackoffPolicy": {
+      "description": "Exponential backoff parameters for `RestartPolicy::OnFailure`.",
+      "type": "object",
+      "required": [
+        "initial_ms",
+        "max_ms",
+        "multiplier"
+      ],
+      "properties": {
+        "initial_ms": {
+          "description": "Initial delay before the first restart, in milliseconds.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "max_ms": {
+          "description": "Maximum delay between retries, in milliseconds.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "multiplier": {
+          "description": "Backoff multiplier applied to each successive delay.",
+          "type": "number",
+          "format": "float"
+        }
+      }
+    },
+    "BuildConfig": {
+      "description": "Build step that produces the static artifact published by a `mesofact-static` workload.",
+      "type": "object",
+      "required": [
+        "command",
+        "out_dir"
+      ],
+      "properties": {
+        "command": {
+          "description": "Shell command run from the manifest's directory, e.g. `\"bun run build\"`.",
+          "type": "string"
+        },
+        "out_dir": {
+          "description": "Output directory (relative to the manifest) the reconciler uploads.",
+          "type": "string"
+        }
+      }
+    },
+    "BuildMode": {
+      "description": "Where the build command runs for a `mesofact-static` workload.\n\nThe two-role split encodes the F7 design decision: build/publish is a **transient job** (runs once, exits, GC'd); SSR/SPA serving is a separate **long-lived companion container** (optional, only for dynamic pages). A single merged \"mesofact container\" is the trap — in cloud, CI builds the artifact, R2+CDN serve it, and a distinct worker handles any SSR.\n\nDefault: `HostSide` — mesofact-dev runs the build on the host and publishes to the tier's object store. No container overhead; compatible with dev and sim tiers.",
+      "oneOf": [
+        {
+          "description": "Build command runs on the host (mesofact-dev watcher). The watcher publishes the output to the tier's object store (DistPointer for dev, MinIO for sim). Compatible with all tiers; zero container overhead.",
+          "type": "object",
+          "required": [
+            "mode"
+          ],
+          "properties": {
+            "mode": {
+              "type": "string",
+              "enum": [
+                "host_side"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Build runs inside a transient container matching the CI image. Higher fidelity (environment matches CI exactly); costs image pull + container cold-start. Required for cloud/HA where no mesofact-dev watcher is running on the host.",
+          "type": "object",
+          "required": [
+            "image",
+            "mode"
+          ],
+          "properties": {
+            "image": {
+              "description": "Container image that runs the build (e.g. `\"ghcr.io/org/app-build:v1.2\"`). Must have the build toolchain installed. The container is started with the workspace root bind-mounted, runs `build.command`, uploads `build.out_dir` to the object store, then exits.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ImageRef"
+                }
+              ]
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "in_container"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Cadence": {
+      "description": "When the almanac scheduler triggers a run.",
+      "oneOf": [
+        {
+          "description": "Run once at first opportunity, then never again.",
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "once"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Run repeatedly with a fixed interval between the end of one run and the start of the next. Equivalent to `sleep N && run` in a loop.",
+          "type": "object",
+          "required": [
+            "interval",
+            "kind"
+          ],
+          "properties": {
+            "interval": {
+              "description": "Minimum time between consecutive run completions.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Millis"
+                }
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "every"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Run on a UTC cron schedule (standard 5-field expression, e.g. `\"0 */6 * * *\"` for every 6 hours). The scheduler evaluates the expression relative to UTC midnight.",
+          "type": "object",
+          "required": [
+            "expression",
+            "kind"
+          ],
+          "properties": {
+            "expression": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "cron"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "EnvValue": {
+      "description": "Value source for an environment variable.",
+      "oneOf": [
+        {
+          "description": "Static string baked into the spec.",
+          "type": "object",
+          "required": [
+            "type",
+            "value"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "literal"
+              ]
+            },
+            "value": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Resolved from a warden secret at deploy time; the secret value never appears in the spec JSON.",
+          "type": "object",
+          "required": [
+            "key",
+            "secret",
+            "type"
+          ],
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "secret": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "from_secret"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Resolved from another workload's mesh address at deploy time by warden. Lets workloads reference each other symbolically without IP pinning.",
+          "type": "object",
+          "required": [
+            "ident",
+            "kind",
+            "type"
+          ],
+          "properties": {
+            "ident": {
+              "$ref": "#/definitions/MeshIdent"
+            },
+            "kind": {
+              "$ref": "#/definitions/MeshLookup"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "from_mesh"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "EnvVar": {
+      "description": "A single environment variable injected into the container.",
+      "type": "object",
+      "required": [
+        "name",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "description": "Variable name, conventionally `SCREAMING_SNAKE_CASE`.",
+          "type": "string"
+        },
+        "value": {
+          "description": "Value source.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/EnvValue"
+            }
+          ]
+        }
+      }
+    },
+    "ExposeSpec": {
+      "description": "Network exposure configuration. The three channels are independent; any combination is valid.",
+      "type": "object",
+      "required": [
+        "mesh"
+      ],
+      "properties": {
+        "mesh": {
+          "description": "Mesh-internal exposure. Required; every workload must have a mesh identity even if no other workload currently reaches it.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MeshExpose"
+            }
+          ]
+        },
+        "operator": {
+          "description": "Operator-facing exposure via a Tailscale ACL tag. `None` means the workload is not operator-reachable via Tailscale.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OperatorExpose"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "public": {
+          "description": "Public internet exposure via a Cloudflare tunnel route. `None` means the workload is not internet-reachable.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PublicExpose"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "HealthProbe": {
+      "description": "Mechanism used to check container health.",
+      "oneOf": [
+        {
+          "description": "HTTP GET to `path` on `port`. A 2xx (or `expect_status` if set) response counts as healthy.",
+          "type": "object",
+          "required": [
+            "path",
+            "port",
+            "type"
+          ],
+          "properties": {
+            "expect_status": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint16",
+              "minimum": 0.0
+            },
+            "path": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "http_get"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Run `argv` inside the container; exit-0 counts as healthy.",
+          "type": "object",
+          "required": [
+            "argv",
+            "type"
+          ],
+          "properties": {
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "exec"
+              ]
+            }
+          }
+        },
+        {
+          "description": "TCP connection to `port`; a successful connect counts as healthy.",
+          "type": "object",
+          "required": [
+            "port",
+            "type"
+          ],
+          "properties": {
+            "port": {
+              "type": "integer",
+              "format": "uint16",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "tcp_connect"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Healthcheck": {
+      "description": "Container health probe configuration.",
+      "type": "object",
+      "required": [
+        "failure_threshold",
+        "initial_delay",
+        "interval",
+        "probe",
+        "timeout"
+      ],
+      "properties": {
+        "failure_threshold": {
+          "description": "Number of consecutive failures before the container is marked `Unhealthy`.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "initial_delay": {
+          "description": "Time to wait after container start before the first probe. Shape validation warns (not errors) if this is less than `stop_policy.grace_period * 2`.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Millis"
+            }
+          ]
+        },
+        "interval": {
+          "description": "How often the probe runs.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Millis"
+            }
+          ]
+        },
+        "probe": {
+          "description": "The probe executed to determine container health.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/HealthProbe"
+            }
+          ]
+        },
+        "timeout": {
+          "description": "Per-probe timeout; a slow response counts as failure.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Millis"
+            }
+          ]
+        }
+      }
+    },
+    "ImageRef": {
+      "description": "Container image reference identifying a specific image to pull.",
+      "type": "object",
+      "required": [
+        "registry",
+        "repository",
+        "tag"
+      ],
+      "properties": {
+        "digest": {
+          "description": "Content-addressed pinned identity, e.g. `\"sha256:...\"`. Takes precedence over `tag` for exact-image guarantees when present.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "registry": {
+          "description": "Registry hostname, e.g. `\"ghcr.io\"` or `\"localhost:5000\"`.",
+          "type": "string"
+        },
+        "repository": {
+          "description": "Repository path, e.g. `\"noisetable/api\"`.",
+          "type": "string"
+        },
+        "tag": {
+          "description": "Tag, e.g. `\"v1.4.2\"` or `\"latest\"`. Must be non-empty when `digest` is `None`; shape validation enforces this.",
+          "type": "string"
+        }
+      }
+    },
+    "MeshExpose": {
+      "description": "Mesh-internal port exposure and peer access control.",
+      "type": "object",
+      "required": [
+        "identity",
+        "ports"
+      ],
+      "properties": {
+        "allow_from": {
+          "description": "Which tiers may initiate connections to this workload on the mesh. An empty list means no peer restriction (warden default: allow all).",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/TierTag"
+          }
+        },
+        "identity": {
+          "description": "DNS-segment mesh identity for this workload. Must be unique in the cluster. Regex: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, length ≤ 63.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/MeshIdent"
+            }
+          ]
+        },
+        "ports": {
+          "description": "Container-side ports this workload listens on. Other workloads reach it at `<identity>:<port>` on the mesh.",
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0.0
+          }
+        }
+      }
+    },
+    "MeshIdent": {
+      "description": "DNS-segment identity for a workload on the cluster mesh, e.g. `\"noisetable-api.pdx\"`. Regex constraint: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, length ≤ 63. Enforced in shape validation (R090-F2).",
+      "type": "string"
+    },
+    "MeshLookup": {
+      "description": "Which aspect of a mesh peer's address to inject.",
+      "oneOf": [
+        {
+          "description": "Full URL, e.g. `\"http://noisetable-db.pdx:5432\"`.",
+          "type": "string",
+          "enum": [
+            "url"
+          ]
+        },
+        {
+          "description": "Hostname only, e.g. `\"noisetable-db.pdx\"`.",
+          "type": "string",
+          "enum": [
+            "host"
+          ]
+        },
+        {
+          "description": "Port only, e.g. `\"5432\"`.",
+          "type": "string",
+          "enum": [
+            "port"
+          ]
+        }
+      ]
+    },
+    "Millis": {
+      "description": "Duration expressed as an integer millisecond count.\n\nUsed for healthcheck intervals, timeouts, delays, and stop grace periods. Chosen over `std::time::Duration` to keep serde support dependency-free.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "NotReadyPolicy": {
+      "description": "What the almanac scheduler does when a precondition check fails.\n\nThe F9 design decision: `WaitWithTimeout` is the default. Fail-fast is too brittle for the sim tier (containers may still be cold-starting); requeue-with-no-ceiling can block the scheduler indefinitely. The recommended timeout for sim is the container spinup budget (~5 s cold, ~1 s warm): set `timeout` to a few seconds, then let the retry cadence handle transient glitches.",
+      "oneOf": [
+        {
+          "description": "Wait up to `timeout` for all preconditions to pass before aborting the run. The run is skipped (not rescheduled); the next cadence tick will retry. Suitable when targets occasionally lag at startup.",
+          "type": "object",
+          "required": [
+            "policy",
+            "timeout"
+          ],
+          "properties": {
+            "policy": {
+              "type": "string",
+              "enum": [
+                "wait_with_timeout"
+              ]
+            },
+            "timeout": {
+              "description": "How long to wait for each precondition to become reachable. The scheduler polls with a short sleep between attempts.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Millis"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "description": "Abort immediately if any precondition check fails. Suitable for integration-test harnesses where a missing dependency is always a hard error.",
+          "type": "object",
+          "required": [
+            "policy"
+          ],
+          "properties": {
+            "policy": {
+              "type": "string",
+              "enum": [
+                "fail_fast"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Requeue with exponential backoff up to `max_attempts` times. After exhaustion the run is marked failed. Suitable for cloud/HA where transient dependency outages are expected.",
+          "type": "object",
+          "required": [
+            "backoff",
+            "max_attempts",
+            "policy"
+          ],
+          "properties": {
+            "backoff": {
+              "description": "Initial backoff between attempts, in milliseconds.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/Millis"
+                }
+              ]
+            },
+            "max_attempts": {
+              "description": "Maximum number of requeue attempts before the run is marked failed.",
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "policy": {
+              "type": "string",
+              "enum": [
+                "requeue"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "OperatorExpose": {
+      "description": "Operator-facing exposure via a Tailscale ACL tag.",
+      "type": "object",
+      "required": [
+        "port",
+        "tailscale_tag"
+      ],
+      "properties": {
+        "port": {
+          "description": "Container-side port to expose to Tailscale-authorized operators.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0.0
+        },
+        "tailscale_tag": {
+          "description": "Tailscale ACL tag granting access, e.g. `\"tag:noisetable-ops\"`. Semantic validation checks that this tag exists in the cluster's Tailscale ACL.",
+          "type": "string"
+        }
+      }
+    },
+    "PublicExpose": {
+      "description": "Public internet exposure via a Cloudflare tunnel route.",
+      "type": "object",
+      "required": [
+        "hostname",
+        "port",
+        "tls"
+      ],
+      "properties": {
+        "hostname": {
+          "description": "Public hostname to route, e.g. `\"api.noisetable.io\"`. Semantic validation checks that this hostname is owned by a configured CF zone.",
+          "type": "string"
+        },
+        "port": {
+          "description": "Container-side port to route traffic to. Shape validation requires this port to appear in `expose.mesh.ports`.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0.0
+        },
+        "tls": {
+          "description": "TLS configuration for the public endpoint.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/PublicTls"
+            }
+          ]
+        }
+      }
+    },
+    "PublicTls": {
+      "description": "TLS mode for a public endpoint.",
+      "oneOf": [
+        {
+          "description": "Cloudflare manages the TLS certificate (default; requires a proxied DNS record in the configured zone).",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "cf_managed"
+              ]
+            }
+          }
+        },
+        {
+          "description": "User-supplied certificate referenced by name in the warden secret store.",
+          "type": "object",
+          "required": [
+            "name",
+            "type"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "user_cert_ref"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "ResourceLimits": {
+      "description": "Hard resource caps enforced by containerd/cgroups at runtime.",
+      "type": "object",
+      "required": [
+        "cpu_shares",
+        "ephemeral_storage_mb",
+        "memory_mb"
+      ],
+      "properties": {
+        "cpu_shares": {
+          "description": "CPU weight (Linux `cpu.shares`). 1024 ≈ one full core.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "ephemeral_storage_mb": {
+          "description": "Cap on the writable layer + tmpfs footprint, in MiB.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "memory_mb": {
+          "description": "Maximum RAM the container may allocate, in MiB. The container is OOM- killed if it exceeds this.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "RestartPolicy": {
+      "description": "What warden does when the container exits.",
+      "oneOf": [
+        {
+          "description": "Restart unconditionally on any exit.",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "always"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Restart on non-zero exit, up to `max_attempts` times with exponential backoff. After exhaustion, the workload is marked `Failed`.",
+          "type": "object",
+          "required": [
+            "backoff",
+            "max_attempts",
+            "type"
+          ],
+          "properties": {
+            "backoff": {
+              "$ref": "#/definitions/BackoffPolicy"
+            },
+            "max_attempts": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "on_failure"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Do not restart. The container runs once and exits.\n\n**Forge convention.** Forge runs (R094) synthesize a `WorkloadSpec` using [`WorkloadSpec::for_forge`] which sets all the conventional fields together:\n\n- `restart_policy = Never` - `expose.public = None`, `expose.operator = None` - `expose.mesh.identity = \"forge.<forge_id>\"` — distinguishable from persistent mirror identities at the mesh layer - `tier = \"infra\"` (or the forge-spec's effective tier) - `annotations[\"yah.forge\"] = \"true\"` — suppresses the shape warning\n\nUsing `Never` on a persistent mirror (not a forge run) means the mirror stays dead after any exit — a likely misconfiguration. Shape validation emits a soft warning unless `annotations[\"yah.forge\"] == \"true\"` is present. See R094 forge.",
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "never"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "SchemaVersion": {
+      "description": "Wire-format schema version envelope.\n\nSingle variant today. When a breaking field rename or removal requires a migration path, a new variant is added. The `schema_version` field on `WorkloadSpec` uses this as a tag so rolling clusters can decode multiple versions simultaneously. See arch doc §Evolution for the versioning rules.",
+      "type": "string",
+      "enum": [
+        "V1"
+      ]
+    },
+    "SecretMount": {
+      "description": "A secret value mounted into the container as an env var or file.\n\nThe secret value never appears in the spec JSON — only the reference. Warden audits secret access per workload from these references.",
+      "type": "object",
+      "required": [
+        "source",
+        "target"
+      ],
+      "properties": {
+        "source": {
+          "description": "Where warden reads the secret value from.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SecretRef"
+            }
+          ]
+        },
+        "target": {
+          "description": "How the secret is surfaced inside the container.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SecretTarget"
+            }
+          ]
+        }
+      }
+    },
+    "SecretRef": {
+      "description": "Where warden resolves the secret value from.",
+      "oneOf": [
+        {
+          "description": "Per-machine warden secret store at `/var/lib/yah/warden/secrets/`.",
+          "type": "object",
+          "required": [
+            "path",
+            "type"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "local_file"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Raft-replicated cluster secret spanning all machines (planned; not in V1 deployment). Sketch preserved for wire compatibility.",
+          "type": "object",
+          "required": [
+            "name",
+            "type"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "cluster"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "SecretTarget": {
+      "description": "How the secret is surfaced inside the container.",
+      "oneOf": [
+        {
+          "description": "Injected as an environment variable. Value never appears in spec JSON. Prefer `File` — env vars leak through subprocess env and log dumps.",
+          "type": "object",
+          "required": [
+            "name",
+            "type"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "env_var"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Mounted as a file inside the container at `path` with `mode` (octal).",
+          "type": "object",
+          "required": [
+            "mode",
+            "path",
+            "type"
+          ],
+          "properties": {
+            "mode": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "file"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "StopPolicy": {
+      "description": "Graceful shutdown configuration for warden's stop sequence.",
+      "type": "object",
+      "required": [
+        "grace_period",
+        "signal"
+      ],
+      "properties": {
+        "grace_period": {
+          "description": "Time warden waits after sending `signal` before issuing SIGKILL.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Millis"
+            }
+          ]
+        },
+        "signal": {
+          "description": "Signal number sent first, e.g. `15` (SIGTERM) or `2` (SIGINT).",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "TierTag": {
+      "description": "Tier classification that governs admission control and mesh `allow_from` filtering. Known values: `\"public\"`, `\"tenant\"`, `\"private\"`, `\"infra\"`. Custom tiers are allowed per cluster; shape validation warns on unknowns rather than rejecting them (R090-F2).",
+      "type": "string"
+    },
+    "VolumeMount": {
+      "description": "A volume mount inside the container.",
+      "type": "object",
+      "required": [
+        "read_only",
+        "source",
+        "target"
+      ],
+      "properties": {
+        "read_only": {
+          "description": "Whether the container sees the volume as read-only.",
+          "type": "boolean"
+        },
+        "source": {
+          "description": "Backing volume source.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/VolumeSource"
+            }
+          ]
+        },
+        "target": {
+          "description": "Absolute path inside the container.",
+          "type": "string"
+        }
+      }
+    },
+    "VolumeSource": {
+      "description": "Backing source for a volume mount.",
+      "oneOf": [
+        {
+          "description": "Warden-managed named volume; created on first use.",
+          "type": "object",
+          "required": [
+            "name",
+            "type"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "named"
+              ]
+            }
+          }
+        },
+        {
+          "description": "Operator-managed host path. Warden rejects bind mounts unless `WorkloadSpec.tier == \"infra\"`; shape validation enforces this.",
+          "type": "object",
+          "required": [
+            "host_path",
+            "type"
+          ],
+          "properties": {
+            "host_path": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "bind"
+              ]
+            }
+          }
+        },
+        {
+          "description": "In-memory tmpfs; discarded on container stop. `size_mb` caps space consumed by the writable layer.",
+          "type": "object",
+          "required": [
+            "size_mb",
+            "type"
+          ],
+          "properties": {
+            "size_mb": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0.0
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "tmpfs"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "WorkloadSpec": {
+      "description": "Complete typed description of a containerd workload handed to warden over RPC. This is also the payload of the `kind = \"container\"` variant of [`Workload`] on disk.\n\nWarden never accepts compose YAML on its RPC surface — agents, the desktop, and operator CLIs all hand warden `WorkloadSpec` values. See the arch doc for the validation layers and evolution rules.",
+      "type": "object",
+      "required": [
+        "expose",
+        "image",
+        "name",
+        "replicas",
+        "resources",
+        "restart_policy",
+        "schema_version",
+        "stop_policy",
+        "tier"
+      ],
+      "properties": {
+        "annotations": {
+          "description": "Yah-specific metadata, conventionally prefixed `yah.*`. Opaque to warden beyond `yah.forge=true` which suppresses the Never-restart guard.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "command": {
+          "description": "Override the image's `CMD`. `None` leaves the image default.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "depends_on": {
+          "description": "Mesh idents that must reach `Ready` before this workload starts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/MeshIdent"
+          }
+        },
+        "entrypoint": {
+          "description": "Override the image's `ENTRYPOINT`. `None` leaves the image default.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "description": "Environment variables. Values may be literals, secret refs, or mesh-address references resolved by warden at deploy time.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/EnvVar"
+          }
+        },
+        "expose": {
+          "description": "Network exposure configuration — mesh, public, and operator channels are independent and can be set in any combination.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ExposeSpec"
+            }
+          ]
+        },
+        "healthcheck": {
+          "description": "Container liveness/readiness probe.",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Healthcheck"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "image": {
+          "description": "Container image to pull.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ImageRef"
+            }
+          ]
+        },
+        "labels": {
+          "description": "OCI-style labels, passed through to the container. Opaque to warden.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "name": {
+          "description": "DNS-friendly workload name, e.g. `\"noisetable-api\"`. Regex: `^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`, length ≤ 63.",
+          "type": "string"
+        },
+        "replicas": {
+          "description": "Target replica count. `0` registers the workload without deploying it. Range: 0–100 (cluster-wide cap; operator can raise it).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        },
+        "resources": {
+          "description": "Hard resource caps enforced by containerd/cgroups.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ResourceLimits"
+            }
+          ]
+        },
+        "restart_policy": {
+          "description": "What warden does when the container exits.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RestartPolicy"
+            }
+          ]
+        },
+        "schema_version": {
+          "description": "Wire-format version; always `V1` today. Present at the top level so rolling clusters can detect and migrate across schema generations.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/SchemaVersion"
+            }
+          ]
+        },
+        "secrets": {
+          "description": "Secret mounts. Values never appear in the spec JSON — only references.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/SecretMount"
+          }
+        },
+        "stop_policy": {
+          "description": "Graceful shutdown configuration.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/StopPolicy"
+            }
+          ]
+        },
+        "tier": {
+          "description": "Tier tag controlling admission control and mesh filtering.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/TierTag"
+            }
+          ]
+        },
+        "user": {
+          "description": "User to run as, e.g. `\"1000:1000\"` or `\"appuser\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "volumes": {
+          "description": "Volume mounts.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/VolumeMount"
+          }
+        },
+        "workdir": {
+          "description": "Working directory inside the container.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

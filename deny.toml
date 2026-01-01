@@ -1,0 +1,98 @@
+# cargo-deny policy for the xlb workspace.
+#
+# Run with: cargo deny check
+#
+# The yah/xlb family ships only under permissive licenses (MIT / BSD /
+# Apache-2.0 / ISC / Unicode / Zlib / MPL-2.0). Anything copyleft (GPL / LGPL /
+# AGPL / SSPL) is rejected outright — those terms would re-license downstream
+# consumers and conflict with the dual-MIT/Apache-2.0 license of every crate
+# in this workspace.
+
+[graph]
+all-features = false
+no-default-features = false
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Licenses
+# ---------------------------------------------------------------------------
+[licenses]
+version = 2
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+    "OpenSSL",
+    # Unlicense is public-domain-equivalent; used by async_io_stream / pharos
+    # (transitive via iroh-relay / ws_stream_wasm).
+    "Unlicense",
+    # CDLA-Permissive-2.0 — community data license, permissive; used by
+    # webpki-roots / webpki-root-certs (transitive via reqwest / rustls).
+    "CDLA-Permissive-2.0",
+]
+exceptions = []
+
+# Crates with non-SPDX or ambiguous licensing get pinned here with the upstream
+# license file hash so a license-text drift trips the lint.
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+# ---------------------------------------------------------------------------
+# Bans
+# ---------------------------------------------------------------------------
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = [
+    # OpenSSL: we are an all-rustls workspace. Pulling openssl-sys means a C
+    # toolchain and a separate cert-path story; both are outside scope.
+    { name = "openssl" },
+    { name = "openssl-sys" },
+    { name = "native-tls" },
+]
+skip = []
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Advisories
+# ---------------------------------------------------------------------------
+[advisories]
+version = 2
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Unmaintained advisories pulled in by iroh's transitive dep tree.
+# Remove each entry once iroh bumps past the offending dep.
+ignore = [
+    # atomic-polyfill 1.0.3 — iroh-relay transitive; RUSTSEC-2023-0089
+    "RUSTSEC-2023-0089",
+    # paste 1.0.15 — iroh transitive; RUSTSEC-2024-0436
+    "RUSTSEC-2024-0436",
+    # proc-macro-error 0.4.12 — iroh transitive; RUSTSEC-2024-0370
+    "RUSTSEC-2024-0370",
+]
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

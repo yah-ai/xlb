@@ -1,0 +1,81 @@
+name: release-plz
+
+# Runs release-plz on every push to main. Two parallel jobs:
+#
+# - release-plz-pr: keeps a single "release-plz: release vX.Y.Z" PR open with
+#   bumped versions + regenerated CHANGELOG.md, derived from conventional
+#   commits since the last release. Merging the PR is what authorizes a
+#   release.
+#
+# - release-plz-release: after a release PR merges into main, this job sees
+#   the bumped versions in Cargo.toml, publishes each crate to crates.io in
+#   topological order (xlb-net → xlb), creates per-crate git tags, and
+#   opens a GitHub Release for each. xlb-cli has `publish = false` so it's
+#   skipped.
+#
+# Conventional commits drive the bump. `feat:` → minor, `fix:` → patch,
+# `BREAKING CHANGE:` (or `!:`) → major. Override per-PR with a custom
+# changelog entry in the PR body, or hand-edit the bump PR before merging.
+#
+# Required repo secrets:
+#   - CARGO_REGISTRY_TOKEN: scoped crates.io publish token
+#   - RELEASE_PLZ_TOKEN   : (recommended) fine-grained PAT with
+#                           contents:write + pull-requests:write. Using
+#                           GITHUB_TOKEN works, but PRs/tags created by it
+#                           won't trigger downstream workflows.
+
+permissions:
+  pull-requests: write
+  contents: write
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release-plz-release:
+    name: release-plz / release
+    runs-on: ubuntu-latest
+    # Gate on the canonical repo path so forks + local-only clones don't try
+    # to publish. Keeps the workflow inert until xlb spins out to its own
+    # repo with secrets configured.
+    if: ${{ github.repository == 'yah-ai/xlb' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-plz-pr:
+    name: release-plz / pr
+    runs-on: ubuntu-latest
+    if: ${{ github.repository == 'yah-ai/xlb' }}
+    # release-plz updates one long-lived release PR per branch. Serialize so
+    # two pushes don't race on the same PR.
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://yah.dev/schemas/camp.toml.schema.json",
+  "title": "Camp configuration",
+  "description": "Per-camp config for yah workspaces (.yah/camp.toml). Replaces the pre-R179 trio of camp.json, agent-settings.json, and approval.toml.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable workspace name."
+    },
+    "viewports": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string" },
+      "description": "Subdirectories explicitly declared as viewports of this camp."
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tab": {
+          "type": "string",
+          "enum": ["party", "arch", "board", "settings"],
+          "description": "Default UI tab on camp open."
+        },
+        "arch_depth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Default depth for arch graph slices."
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Schema version for the [agent] block."
+        },
+        "writers_enabled": {
+          "type": "boolean",
+          "description": "When true, the runner exposes write tools behind the approval gate. Default: false."
+        },
+        "mcp_debug": {
+          "type": "boolean",
+          "description": "When true, yah MCP server tees every stdio frame to .yah/mcp-debug.jsonl. Default: false."
+        }
+      }
+    },
+    "concierge_subclass": {
+      "type": "string",
+      "description": "Subclass ID to use as the camp's concierge singleton. Falls back to the Thief→Cleric heuristic when absent."
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "board": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "writes": {
+              "type": "string",
+              "enum": ["prompt", "auto"],
+              "description": "Policy for board.* write verbs. \"prompt\" routes through the approval gate; \"auto\" auto-passes without prompting."
+            }
+          }
+        }
+      }
+    }
+  }
+}

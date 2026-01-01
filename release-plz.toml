@@ -1,0 +1,22 @@
+# release-plz configuration for the xlb workspace.
+#
+# Publish with:  release-plz release --backend github
+#
+# xlb-net is published first because xlb depends on it.  release-plz detects
+# the dependency order from Cargo.toml and publishes in topological order.
+# The path dep `xlb-net = { path = "../xlb-net", version = "0.1" }` in xlb's
+# Cargo.toml is rewritten to a registry dep before publication.
+
+[workspace]
+# One tag per crate: xlb-net-v0.1.0, xlb-v0.1.0
+git_tag_name = "{{package}}-v{{version}}"
+# Allow extra time for the large iroh dep graph to resolve and publish.
+publish_timeout = "300s"
+
+[[package]]
+name = "xlb-net"
+# xlb-net publishes first; no special overrides needed.
+
+[[package]]
+name = "xlb"
+# release-plz waits for xlb-net to appear on crates.io before publishing xlb.

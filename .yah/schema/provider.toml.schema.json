@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProviderConfig",
+  "description": "A provider account/runtime binding from `.yah/infra/providers/<id>.toml`.\n\nThe `kind` discriminator picks the schema for the remaining fields. Strict on `kind` (unknown values are a parse error); permissive on per-kind fields (carried as a free-form map so this loader stays stable as new fields land). B3/B4 will tighten by introducing typed variants alongside JSON Schema.",
+  "type": "object",
+  "required": [
+    "id",
+    "kind",
+    "schema_version"
+  ],
+  "properties": {
+    "credentials": {
+      "description": "Reference into the OS keystore for live credentials (e.g. `\"keystore://cloudflare/yah\"`). `None` for providers that don't need creds (local-static, optionally local-container).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/definitions/Provider"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": true,
+  "definitions": {
+    "Provider": {
+      "description": "Tag for the infrastructure provider kind. Drives which fields are valid in a [`ProviderConfig`] body or a [`MirrorProviderSlot::Inline`] block.\n\nTwo flavors: - **Account/runtime providers** (`cloudflare`, `hetzner`, `local-container`) live as files under `.yah/infra/providers/<id>.toml` and are referenced from a mirror via `use = \"<id>\"`. - **Inline-only providers** (`local-static`, `caddy-container`, `minio-container`) declare an operator-local stand-in directly inside a mirror via `kind = \"...\"`. They carry no credentials and have no provider file. The container-backed kinds ride on top of whichever `local-container` runtime is declared in infra (orbstack/colima/docker); the reconciler resolves the runtime at up-time.",
+      "oneOf": [
+        {
+          "description": "Cloudflare account: R2 buckets, DNS, Workers, Tunnels.",
+          "type": "string",
+          "enum": [
+            "cloudflare"
+          ]
+        },
+        {
+          "description": "Hetzner Cloud + Object Storage account.",
+          "type": "string",
+          "enum": [
+            "hetzner"
+          ]
+        },
+        {
+          "description": "Built-in static-file server bound to localhost. Inline-only; never declared as a standalone provider file because it carries no creds.",
+          "type": "string",
+          "enum": [
+            "local-static"
+          ]
+        },
+        {
+          "description": "Local container runtime (orbstack/colima/docker). Configured by a provider file under `.yah/infra/providers/` so the discovery hints + runtime override sit in one place.",
+          "type": "string",
+          "enum": [
+            "local-container"
+          ]
+        },
+        {
+          "description": "Containerized Caddy fronting an object store — the local-sim stand-in for a CDN-fronted static surface (`cloudflare` in prod). Inline-only; the reconciler spins up the container on the local-container runtime and points Caddy's origin at the sibling `object_store` slot.",
+          "type": "string",
+          "enum": [
+            "caddy-container"
+          ]
+        },
+        {
+          "description": "Containerized MinIO providing an S3-compatible API — the local-sim stand-in for Cloudflare R2. Inline-only; the reconciler spins up the container on the local-container runtime and auto-creates the declared bucket on first up.",
+          "type": "string",
+          "enum": [
+            "minio-container"
+          ]
+        }
+      ]
+    }
+  }
+}

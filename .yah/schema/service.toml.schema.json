@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ServiceConfig",
+  "description": "An operator-facing service declaration from `.yah/services/<svc>/service.toml`.\n\nA service groups one or more components (a static surface, a containerized API, an almanac…) under a single domain. Mirrors project the service onto concrete infra; see [`MirrorConfig`].",
+  "type": "object",
+  "required": [
+    "domain",
+    "name",
+    "schema_version"
+  ],
+  "properties": {
+    "components": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ServiceComponent"
+      }
+    },
+    "domain": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "schema_version": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0.0
+    }
+  },
+  "definitions": {
+    "ServiceComponent": {
+      "description": "One component of a [`ServiceConfig`]. The `kind` (e.g. `\"mesofact-static\"`, `\"almanac\"`, `\"container\"`) selects which reconciler runs against the pointed-at workload manifest.",
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "path",
+        "role"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Path (relative to workspace root) of the directory holding this component's `workload.toml`.",
+          "type": "string"
+        },
+        "publishes": {
+          "description": "Optional artifact kind this component publishes (`\"static\"`, `\"container-image\"`, …). Drives mirror provider-slot routing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "role": {
+          "description": "Operator-facing role label, e.g. `\"static\"`, `\"dynamic\"`, `\"compute\"`.",
+          "type": "string"
+        }
+      }
+    }
+  }
+}
