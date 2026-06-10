@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.1](https://github.com/yah-ai/xlb/compare/xlb-net-v0.1.0...xlb-net-v0.1.1) - 2026-06-10
+
+### Other
+
+- initial commit
+
 ## [0.1.0] - 2026-05-11
 
 ### Added
