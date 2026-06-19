@@ -21,7 +21,7 @@ pub mod testing;
 pub mod transport;
 
 pub use bandwidth::BandwidthGovernor;
-pub use source::FetchTier;
+pub use source::{FetchProgress, FetchTier, ProgressSink};
 pub(crate) use source::BlobSource;
 
 use std::{
@@ -384,6 +384,19 @@ impl AssetClass {
 
     /// Internal: run the fetch chain for `hash`.
     pub(crate) async fn fetch_bytes(&self, hash: BlakeHash) -> Result<Bytes> {
+        self.fetch_bytes_with_progress(hash, None).await
+    }
+
+    /// Internal: run the fetch chain for `hash`, reporting byte progress.
+    ///
+    /// Identical to [`fetch_bytes`](Self::fetch_bytes) but threads `sink`
+    /// down to the serving source. A cache hit returns without ever invoking
+    /// `sink` (instant, no transfer to surface).
+    pub(crate) async fn fetch_bytes_with_progress(
+        &self,
+        hash: BlakeHash,
+        sink: Option<ProgressSink>,
+    ) -> Result<Bytes> {
         // 1. Local cache — fast path. Disk-backed cache re-verifies BLAKE3
         //    on read; mem-backed is a HashMap lookup.
         if let Some(bytes) = self.0.cache.get(&hash).await {
@@ -396,7 +409,7 @@ impl AssetClass {
             self.0.sources.read().await.clone();
 
         let chain = source::FetchChain::new(sources);
-        if let Some((_tier, bytes)) = chain.fetch(&hash).await {
+        if let Some((_tier, bytes)) = chain.fetch_with_progress(&hash, sink.as_ref()).await {
             // Cache write failures are non-fatal: the fetched bytes are
             // verified, so we can still return them. A disk-full error
             // means future restarts won't have this entry, but the current
@@ -426,6 +439,15 @@ impl Asset {
     /// Subsequent calls return the cached copy without hitting any source.
     pub async fn fetch(&self) -> Result<Bytes> {
         self.class.fetch_bytes(self.hash).await
+    }
+
+    /// Fetch the blob, reporting incremental byte progress to `sink`.
+    ///
+    /// Identical to [`fetch`](Self::fetch) but the CDN tier emits per-chunk
+    /// [`FetchProgress`] against `Content-Length`. Instant tiers (cache)
+    /// return without ever invoking `sink`.
+    pub async fn fetch_with_progress(&self, sink: ProgressSink) -> Result<Bytes> {
+        self.class.fetch_bytes_with_progress(self.hash, Some(sink)).await
     }
 
     /// Returns `true` if this blob is in the local cache (in-memory or

@@ -37,6 +37,29 @@ impl FetchTier {
     }
 }
 
+/// Cumulative download progress for a single in-flight fetch.
+///
+/// Emitted once per received chunk by progress-aware sources (today only the
+/// CDN HTTP fetcher). Instant tiers (cache) and length-less streams never
+/// emit, so a consumer that sees the bytes return without any callback should
+/// treat the transfer as instantaneous / indeterminate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FetchProgress {
+    /// Bytes received so far, cumulative across the fetch.
+    pub bytes_so_far: u64,
+    /// Total expected bytes when the source knows it (CDN `Content-Length`);
+    /// `None` when the length is indeterminate.
+    pub total: Option<u64>,
+    /// The tier currently serving the bytes.
+    pub tier: FetchTier,
+}
+
+/// Callback sink for incremental [`FetchProgress`] during a fetch.
+///
+/// Cheap to clone (`Arc`); invoked on the fetch task, so the closure must be
+/// `Send + Sync`. Pass one to [`crate::Asset::fetch_with_progress`].
+pub type ProgressSink = Arc<dyn Fn(FetchProgress) + Send + Sync>;
+
 /// Any source that can serve bytes for a [`BlakeHash`].
 ///
 /// The fetch chain calls sources in [`FetchTier`] order; each result is
@@ -49,6 +72,24 @@ pub(crate) trait BlobSource: Send + Sync {
     ///
     /// BLAKE3 verification happens in the caller — do not verify here.
     async fn fetch_raw(&self, hash: &BlakeHash) -> Option<Bytes>;
+
+    /// Like [`fetch_raw`](Self::fetch_raw) but reports incremental byte
+    /// progress to `sink`.
+    ///
+    /// The default impl ignores `sink` and delegates to `fetch_raw`, so
+    /// sources that can't (or needn't) report progress — cache, seed, mock —
+    /// inherit a no-progress fetch unchanged. The CDN HTTP fetcher overrides
+    /// this to stream the body and emit per-chunk progress against
+    /// `Content-Length`.
+    ///
+    /// BLAKE3 verification still happens in the caller — do not verify here.
+    async fn fetch_raw_with_progress(
+        &self,
+        hash: &BlakeHash,
+        _sink: Option<&ProgressSink>,
+    ) -> Option<Bytes> {
+        self.fetch_raw(hash).await
+    }
 
     fn tier(&self) -> FetchTier;
 }
@@ -68,9 +109,15 @@ impl FetchChain {
     ///
     /// Returns `(tier, bytes)` on the first verified hit. Returns `None`
     /// if no source has the blob or all sources returned mismatching bytes.
-    pub async fn fetch(&self, hash: &BlakeHash) -> Option<(FetchTier, Bytes)> {
+    /// Threads a [`ProgressSink`] to each source so the serving tier can
+    /// report byte progress as it streams; pass `None` for no reporting.
+    pub async fn fetch_with_progress(
+        &self,
+        hash: &BlakeHash,
+        sink: Option<&ProgressSink>,
+    ) -> Option<(FetchTier, Bytes)> {
         for source in &self.sources {
-            let Some(bytes) = source.fetch_raw(hash).await else {
+            let Some(bytes) = source.fetch_raw_with_progress(hash, sink).await else {
                 continue;
             };
             if hash.verify(&bytes) {

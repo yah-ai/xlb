@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 
 use crate::{
-    source::{BlobSource, FetchTier},
+    source::{BlobSource, FetchProgress, FetchTier, ProgressSink},
     verify::Verifier,
     BlakeHash,
 };
@@ -53,10 +53,18 @@ impl BlobSource for HttpFetcher {
     }
 
     async fn fetch_raw(&self, hash: &BlakeHash) -> Option<Bytes> {
+        self.fetch_raw_with_progress(hash, None).await
+    }
+
+    async fn fetch_raw_with_progress(
+        &self,
+        hash: &BlakeHash,
+        sink: Option<&ProgressSink>,
+    ) -> Option<Bytes> {
         let url = self.url_for(hash);
         tracing::debug!(%hash, %url, "CDN HTTP fetch");
 
-        let resp = self
+        let mut resp = self
             .client
             .get(&url)
             .send()
@@ -69,14 +77,35 @@ impl BlobSource for HttpFetcher {
             return None;
         }
 
-        let body = resp
-            .bytes()
-            .await
-            .map_err(|e| tracing::warn!(%hash, "CDN body read error: {e}"))
-            .ok()?;
-
+        // Stream the body chunk-by-chunk rather than buffering the whole
+        // (~558MB) object: each chunk is fed through the incremental Verifier
+        // and counted against Content-Length for progress. `Response::chunk`
+        // reads the body stream without needing reqwest's `stream` feature.
+        let total = resp.content_length();
         let mut verifier = Verifier::new(*hash);
-        verifier.update(&body);
+        let mut received: u64 = 0;
+
+        loop {
+            match resp.chunk().await {
+                Ok(Some(chunk)) => {
+                    verifier.update(&chunk);
+                    received = received.saturating_add(chunk.len() as u64);
+                    if let Some(sink) = sink {
+                        sink(FetchProgress {
+                            bytes_so_far: received,
+                            total,
+                            tier: FetchTier::Cdn,
+                        });
+                    }
+                }
+                Ok(None) => break,
+                Err(e) => {
+                    tracing::warn!(%hash, "CDN body read error: {e}");
+                    return None;
+                }
+            }
+        }
+
         verifier
             .finish()
             .map_err(|e| tracing::warn!(%hash, "CDN BLAKE3 mismatch: {e}"))
@@ -150,6 +179,34 @@ mod tests {
         let result = fetcher.fetch_raw(&hash).await;
 
         assert!(result.is_none(), "expected None for 404, got Some");
+    }
+
+    #[tokio::test]
+    async fn reports_progress_against_content_length() {
+        use std::sync::{Arc, Mutex};
+
+        // A multi-KB body so the streamed read carries a real Content-Length.
+        let data = vec![7u8; 5000];
+        let hash = BlakeHash::hash(&data);
+        let url_template = start_test_server(200, data.clone());
+
+        let fetcher = HttpFetcher::new(&url_template).unwrap();
+
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let sink: ProgressSink = Arc::new(move |p| captured.lock().unwrap().push(p));
+
+        let result = fetcher.fetch_raw_with_progress(&hash, Some(&sink)).await;
+        assert_eq!(result.as_deref(), Some(&data[..]), "streamed bytes must verify");
+
+        let events = events.lock().unwrap();
+        assert!(!events.is_empty(), "expected at least one progress callback");
+        let last = events.last().unwrap();
+        assert_eq!(last.bytes_so_far, data.len() as u64, "final progress = full body");
+        assert_eq!(last.total, Some(data.len() as u64), "Content-Length surfaced");
+        assert_eq!(last.tier, FetchTier::Cdn);
+        // Cumulative byte count is monotonically non-decreasing.
+        assert!(events.windows(2).all(|w| w[0].bytes_so_far <= w[1].bytes_so_far));
     }
 
     #[tokio::test]
