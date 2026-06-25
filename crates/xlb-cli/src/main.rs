@@ -4,6 +4,7 @@ mod config;
 mod fetch_cmd;
 mod gui;
 mod inspect;
+mod seed_cmd;
 mod serve;
 mod socket;
 
@@ -40,6 +41,27 @@ enum Cmd {
     },
     /// Open the live TUI dashboard (connects to a running node).
     Gui,
+    /// Publish a local file to a class's CDN origin (R2) at its
+    /// content-addressed key. Standalone — does not need a running node.
+    ///
+    /// Credentials come from the environment (XLB_R2_* / AWS_* / CF_R2_*);
+    /// see `xlb::R2Target::from_env`.
+    Seed {
+        /// Asset class name (must exist in the node config, with a cdn_fallback).
+        #[arg(short, long)]
+        class: String,
+        /// Path to the file to seed.
+        file: String,
+        /// Path to the node config file (for the class's cdn_fallback template).
+        #[arg(long, default_value = "xlb-node.json")]
+        config: String,
+        /// Append a JSONL record of the seed to this manifest file.
+        #[arg(long)]
+        manifest: Option<String>,
+        /// Emit a single machine-readable JSON line instead of human text.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn default_socket() -> String {
@@ -67,5 +89,8 @@ async fn main() -> anyhow::Result<()> {
             fetch_cmd::run(&class, &hash, out.as_deref(), &cli.socket).await
         }
         Cmd::Gui => gui::run(&cli.socket).await,
+        Cmd::Seed { class, file, config, manifest, json } => {
+            seed_cmd::run(&class, &file, &config, manifest.as_deref(), json).await
+        }
     }
 }

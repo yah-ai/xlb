@@ -20,7 +20,9 @@ async-trait = "0.1"
 blake3 = "1"
 bytes = "1"
 hex = "0.4"
-iroh = { version = "=1.0.0-rc.0", default-features = false, features = ["tls-ring"] }
+hmac = "0.12"
+sha2 = "0.10"
+iroh ={ version = "=1.0.0-rc.0", default-features = false, features = ["tls-ring"] }
 iroh-blobs = { version = "0.101.0", default-features = false }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 thiserror = "2.0"

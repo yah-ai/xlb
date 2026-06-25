@@ -15,12 +15,14 @@
 
 pub mod bandwidth;
 pub(crate) mod cache;
+pub mod seed;
 pub(crate) mod source;
 pub(crate) mod verify;
 pub mod testing;
 pub mod transport;
 
 pub use bandwidth::BandwidthGovernor;
+pub use seed::{derive_key, seed_blob, R2Target, SeedOutcome};
 pub use source::{FetchProgress, FetchTier, ProgressSink};
 pub(crate) use source::BlobSource;
 
