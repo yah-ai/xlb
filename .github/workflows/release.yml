@@ -1,0 +1,42 @@
+name: release
+
+# Publish this workspace's crates to crates.io when a vX.Y.Z tag is pushed.
+# Auth is crates.io Trusted Publishing (OIDC) — no token is stored in the repo.
+# Each publishable crate must have a Trusted Publisher configured on crates.io:
+#   owner = yah-ai/<repo>, workflow = release.yml.
+#
+# This mirror is an export of the yah monorepo's oss/<name> subtree; edit the
+# workflow there, not here.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write   # required for crates.io Trusted Publishing (OIDC)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: build & test
+        run: cargo test --workspace
+
+      - name: authenticate to crates.io (OIDC)
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: publish workspace (dependency-ordered)
+        # cargo >= 1.90 publishes interdependent workspace members in order and
+        # waits for propagation between them; publish=false members are skipped.
+        run: cargo publish --workspace
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
