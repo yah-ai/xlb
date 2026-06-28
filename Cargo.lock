@@ -5431,7 +5431,7 @@ dependencies = [
 
 [[package]]
 name = "xlb"
-version = "0.8.14"
+version = "0.8.16"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5451,7 +5451,7 @@ dependencies = [
 
 [[package]]
 name = "xlb-cli"
-version = "0.8.14"
+version = "0.8.16"
 dependencies = [
  "anyhow",
  "clap",
@@ -5468,7 +5468,7 @@ dependencies = [
 
 [[package]]
 name = "xlb-net"
-version = "0.8.14"
+version = "0.8.16"
 dependencies = [
  "anyhow",
  "bytes",

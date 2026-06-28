@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.16](https://github.com/yah-ai/xlb/compare/xlb-v0.8.13...xlb-v0.8.16) - 2026-06-28
+
+### Other
+
+- v0.8.16 (warden→yubaba/constable→kamaji rename)
+- tag release
+- sync
+- wip retag
+
 ## [0.1.0] - 2026-05-11
 
 ### Added
