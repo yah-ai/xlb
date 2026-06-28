@@ -2,7 +2,7 @@
 //! @arch:role(net)
 //!
 //! `xlb-net` — shared iroh-based transport substrate for the yah/xlb crate
-//! family. Wraps `iroh` so consumers (`xlb`, `warden`, noisetable's
+//! family. Wraps `iroh` so consumers (`xlb`, `yubaba`, noisetable's
 //! `society`) import `xlb_net::Endpoint` rather than `iroh::Endpoint`,
 //! giving us a single upgrade point for the pre-1.0 substrate and a
 //! transparent fork escape hatch.
@@ -35,7 +35,7 @@ pub use keypair::Keypair;
 pub use iroh::{RelayMap, RelayMode, RelayUrl};
 
 // iroh 1.0 renamed `NodeId`/`NodeAddr` to `EndpointId`/`EndpointAddr`. The
-// xlb-net arch doc still speaks of `NodeId` (and society/warden's design
+// xlb-net arch doc still speaks of `NodeId` (and society/yubaba's design
 // notes do too), so we expose both spellings as aliases. New code should
 // prefer `NodeId`/`NodeAddr` for cross-consumer consistency; either is fine
 // inside the crate boundary.

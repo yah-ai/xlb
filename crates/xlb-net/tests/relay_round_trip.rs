@@ -3,7 +3,7 @@
 //! Spawns an in-process relay with a self-signed cert, binds two
 //! `xlb_net::Endpoint`s that route through it via
 //! `RelayMode::Custom(...)`, and proves a stream round-trips. This is the
-//! "warden test container hosts a relay; another endpoint configures
+//! "yubaba test container hosts a relay; another endpoint configures
 //! `Discovery::with_relays(custom_url)` and successfully proxies through"
 //! acceptance test from `xlb-net.md`.
 //!

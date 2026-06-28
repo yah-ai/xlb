@@ -1,5 +1,5 @@
 //! Embeddable iroh-relay server. Wraps `iroh_relay::server::Server` with a
-//! yah-flavored builder so warden cloud nodes (and developer test camps)
+//! yah-flavored builder so yubaba cloud nodes (and developer test camps)
 //! can host the relay infrastructure that xlb-net's swarm/NAT-traversal
 //! lanes depend on.
 //!
@@ -17,7 +17,7 @@
 //!   can find them. This is what `Discovery::with_relays(url)` resolves
 //!   against.
 //!
-//! Both services are TLS-terminated by the same cert; warden production
+//! Both services are TLS-terminated by the same cert; yubaba production
 //! nodes use Let's Encrypt, dev/test camps use a self-signed cert.
 //!
 //! ## Three TLS modes
@@ -56,8 +56,8 @@
 //!
 //! `Server::https_url()` and `Server::quic_addr()` give the operator the
 //! values that need to land in the fleet's `Discovery::with_relays(...)`
-//! configuration. Distribution itself is warden's job — see
-//! `app/yah/desktop/` and the warden crate. xlb-net only owns the
+//! configuration. Distribution itself is yubaba's job — see
+//! `app/yah/desktop/` and the yubaba crate. xlb-net only owns the
 //! "how do I host the relay" half.
 
 use std::net::SocketAddr;
@@ -74,7 +74,7 @@ use url::Url;
 use crate::{Error, Result};
 
 // Re-export the typed `RelayMap`/`RelayConfig`/`RelayQuicConfig` triple so
-// downstream callers (warden config, integration tests) can construct
+// downstream callers (yubaba config, integration tests) can construct
 // custom relay maps without taking a direct dep on `iroh-relay`.
 pub use iroh_relay::{RelayConfig as ClientRelayConfig, RelayMap, RelayQuicConfig};
 

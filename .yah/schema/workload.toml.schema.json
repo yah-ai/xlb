@@ -1,10 +1,10 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Workload",
-  "description": "On-disk `workload.toml` manifest. Each variant matches one `ServiceComponent.kind` value; the `kind` field on the wire is the serde discriminator.\n\nThis is the **on-disk** envelope — distinct from [`WorkloadSpec`], the containerd wire format warden receives over RPC. A `kind = \"container\"` workload deserializes its remaining fields as a `WorkloadSpec`; other kinds carry their own per-reconciler payload shape.",
+  "description": "On-disk `workload.toml` manifest. Each variant matches one `ServiceComponent.kind` value; the `kind` field on the wire is the serde discriminator.\n\nThis is the **on-disk** envelope — distinct from [`WorkloadSpec`], the containerd wire format yubaba receives over RPC. A `kind = \"container\"` workload deserializes its remaining fields as a `WorkloadSpec`; other kinds carry their own per-reconciler payload shape.",
   "oneOf": [
     {
-      "description": "Static-site build that publishes an artifact directory to the service's `static` provider slot. Reconciled by the `mesofact-static` reconciler — does not deploy to warden.",
+      "description": "Static-site build that publishes an artifact directory to the service's `static` provider slot. Reconciled by the `mesofact-static` reconciler — does not deploy to yubaba.",
       "type": "object",
       "required": [
         "build",
@@ -48,7 +48,7 @@
           ]
         },
         "ssr_runtime": {
-          "description": "Optional SSR/SPA runtime companion container.\n\n`None` → pure static site; Caddy (or equivalent CDN) serves all requests directly from the object store. This is the common case for dev-yah today.\n\n`Some` → the workload spec describes a long-lived container that handles dynamic/SSR requests. Caddy routes static asset paths to the object store and all other paths to this container. The companion uses `RestartPolicy::Always`; the orchestrator (camp or warden) ensures it stays up alongside the Caddy edge.",
+          "description": "Optional SSR/SPA runtime companion container.\n\n`None` → pure static site; Caddy (or equivalent CDN) serves all requests directly from the object store. This is the common case for dev-yah today.\n\n`Some` → the workload spec describes a long-lived container that handles dynamic/SSR requests. Caddy routes static asset paths to the object store and all other paths to this container. The companion uses `RestartPolicy::Always`; the orchestrator (camp or yubaba) ensures it stays up alongside the Caddy edge.",
           "anyOf": [
             {
               "$ref": "#/definitions/WorkloadSpec"
@@ -61,7 +61,7 @@
       }
     },
     {
-      "description": "Containerd workload handed to warden over RPC. The inline fields are the full [`WorkloadSpec`] minus the `kind` discriminator.",
+      "description": "Containerd workload handed to yubaba over RPC. The inline fields are the full [`WorkloadSpec`] minus the `kind` discriminator.",
       "type": "object",
       "required": [
         "expose",
@@ -77,7 +77,7 @@
       ],
       "properties": {
         "annotations": {
-          "description": "Yah-specific metadata, conventionally prefixed `yah.*`. Opaque to warden beyond `yah.forge=true` which suppresses the Never-restart guard.",
+          "description": "Yah-specific metadata, conventionally prefixed `yah.*`. Opaque to yubaba beyond `yah.forge=true` which suppresses the Never-restart guard.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -111,7 +111,7 @@
           }
         },
         "env": {
-          "description": "Environment variables. Values may be literals, secret refs, or mesh-address references resolved by warden at deploy time.",
+          "description": "Environment variables. Values may be literals, secret refs, or mesh-address references resolved by yubaba at deploy time.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/EnvVar"
@@ -151,7 +151,7 @@
           ]
         },
         "labels": {
-          "description": "OCI-style labels, passed through to the container. Opaque to warden.",
+          "description": "OCI-style labels, passed through to the container. Opaque to yubaba.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -176,7 +176,7 @@
           ]
         },
         "restart_policy": {
-          "description": "What warden does when the container exits.",
+          "description": "What yubaba does when the container exits.",
           "allOf": [
             {
               "$ref": "#/definitions/RestartPolicy"
@@ -543,7 +543,7 @@
           }
         },
         {
-          "description": "Resolved from a warden secret at deploy time; the secret value never appears in the spec JSON.",
+          "description": "Resolved from a yubaba secret at deploy time; the secret value never appears in the spec JSON.",
           "type": "object",
           "required": [
             "key",
@@ -566,7 +566,7 @@
           }
         },
         {
-          "description": "Resolved from another workload's mesh address at deploy time by warden. Lets workloads reference each other symbolically without IP pinning.",
+          "description": "Resolved from another workload's mesh address at deploy time by yubaba. Lets workloads reference each other symbolically without IP pinning.",
           "type": "object",
           "required": [
             "ident",
@@ -822,7 +822,7 @@
       ],
       "properties": {
         "allow_from": {
-          "description": "Which tiers may initiate connections to this workload on the mesh. An empty list means no peer restriction (warden default: allow all).",
+          "description": "Which tiers may initiate connections to this workload on the mesh. An empty list means no peer restriction (yubaba default: allow all).",
           "type": "array",
           "items": {
             "$ref": "#/definitions/TierTag"
@@ -1026,7 +1026,7 @@
           }
         },
         {
-          "description": "User-supplied certificate referenced by name in the warden secret store.",
+          "description": "User-supplied certificate referenced by name in the yubaba secret store.",
           "type": "object",
           "required": [
             "name",
@@ -1076,7 +1076,7 @@
       }
     },
     "RestartPolicy": {
-      "description": "What warden does when the container exits.",
+      "description": "What yubaba does when the container exits.",
       "oneOf": [
         {
           "description": "Restart unconditionally on any exit.",
@@ -1143,7 +1143,7 @@
       ]
     },
     "SecretMount": {
-      "description": "A secret value mounted into the container as an env var or file.\n\nThe secret value never appears in the spec JSON — only the reference. Warden audits secret access per workload from these references.",
+      "description": "A secret value mounted into the container as an env var or file.\n\nThe secret value never appears in the spec JSON — only the reference. Yubaba audits secret access per workload from these references.",
       "type": "object",
       "required": [
         "source",
@@ -1151,7 +1151,7 @@
       ],
       "properties": {
         "source": {
-          "description": "Where warden reads the secret value from.",
+          "description": "Where yubaba reads the secret value from.",
           "allOf": [
             {
               "$ref": "#/definitions/SecretRef"
@@ -1169,10 +1169,10 @@
       }
     },
     "SecretRef": {
-      "description": "Where warden resolves the secret value from.",
+      "description": "Where yubaba resolves the secret value from.",
       "oneOf": [
         {
-          "description": "Per-machine warden secret store at `/var/lib/yah/warden/secrets/`.",
+          "description": "Per-machine yubaba secret store at `/var/lib/yah/yubaba/secrets/`.",
           "type": "object",
           "required": [
             "path",
@@ -1261,7 +1261,7 @@
       ]
     },
     "StopPolicy": {
-      "description": "Graceful shutdown configuration for warden's stop sequence.",
+      "description": "Graceful shutdown configuration for yubaba's stop sequence.",
       "type": "object",
       "required": [
         "grace_period",
@@ -1269,7 +1269,7 @@
       ],
       "properties": {
         "grace_period": {
-          "description": "Time warden waits after sending `signal` before issuing SIGKILL.",
+          "description": "Time yubaba waits after sending `signal` before issuing SIGKILL.",
           "allOf": [
             {
               "$ref": "#/definitions/Millis"
@@ -1318,7 +1318,7 @@
       "description": "Backing source for a volume mount.",
       "oneOf": [
         {
-          "description": "Warden-managed named volume; created on first use.",
+          "description": "Yubaba-managed named volume; created on first use.",
           "type": "object",
           "required": [
             "name",
@@ -1337,7 +1337,7 @@
           }
         },
         {
-          "description": "Operator-managed host path. Warden rejects bind mounts unless `WorkloadSpec.tier == \"infra\"`; shape validation enforces this.",
+          "description": "Operator-managed host path. Yubaba rejects bind mounts unless `WorkloadSpec.tier == \"infra\"`; shape validation enforces this.",
           "type": "object",
           "required": [
             "host_path",
@@ -1379,7 +1379,7 @@
       ]
     },
     "WorkloadSpec": {
-      "description": "Complete typed description of a containerd workload handed to warden over RPC. This is also the payload of the `kind = \"container\"` variant of [`Workload`] on disk.\n\nWarden never accepts compose YAML on its RPC surface — agents, the desktop, and operator CLIs all hand warden `WorkloadSpec` values. See the arch doc for the validation layers and evolution rules.",
+      "description": "Complete typed description of a containerd workload handed to yubaba over RPC. This is also the payload of the `kind = \"container\"` variant of [`Workload`] on disk.\n\nWarden never accepts compose YAML on its RPC surface — agents, the desktop, and operator CLIs all hand yubaba `WorkloadSpec` values. See the arch doc for the validation layers and evolution rules.",
       "type": "object",
       "required": [
         "expose",
@@ -1394,7 +1394,7 @@
       ],
       "properties": {
         "annotations": {
-          "description": "Yah-specific metadata, conventionally prefixed `yah.*`. Opaque to warden beyond `yah.forge=true` which suppresses the Never-restart guard.",
+          "description": "Yah-specific metadata, conventionally prefixed `yah.*`. Opaque to yubaba beyond `yah.forge=true` which suppresses the Never-restart guard.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -1428,7 +1428,7 @@
           }
         },
         "env": {
-          "description": "Environment variables. Values may be literals, secret refs, or mesh-address references resolved by warden at deploy time.",
+          "description": "Environment variables. Values may be literals, secret refs, or mesh-address references resolved by yubaba at deploy time.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/EnvVar"
@@ -1462,7 +1462,7 @@
           ]
         },
         "labels": {
-          "description": "OCI-style labels, passed through to the container. Opaque to warden.",
+          "description": "OCI-style labels, passed through to the container. Opaque to yubaba.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -1487,7 +1487,7 @@
           ]
         },
         "restart_policy": {
-          "description": "What warden does when the container exits.",
+          "description": "What yubaba does when the container exits.",
           "allOf": [
             {
               "$ref": "#/definitions/RestartPolicy"

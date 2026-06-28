@@ -80,7 +80,7 @@ impl EndpointBuilder {
         self
     }
 
-    /// Use a custom relay (typically a warden-hosted [`crate::relay::Server`])
+    /// Use a custom relay (typically a yubaba-hosted [`crate::relay::Server`])
     /// for NAT-traversal proxying and QUIC address discovery. Wraps
     /// `iroh::RelayMode::Custom`.
     ///
@@ -528,7 +528,7 @@ mod tests {
     /// must not crash the bind step. Real pkarr round-trips against n0's
     /// public relay aren't appropriate for a unit test (network egress,
     /// flaky CI); end-to-end pkarr lives in an integration test against
-    /// a warden-hosted relay (R105-F4).
+    /// a yubaba-hosted relay (R105-F4).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn swarm_lane_binds() {
         use crate::default_relays;

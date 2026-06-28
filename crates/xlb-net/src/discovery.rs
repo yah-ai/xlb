@@ -13,13 +13,13 @@
 //!   advertises itself) and a `PkarrResolver` (so this endpoint can look
 //!   up peers that advertised on the same relay).
 //! - **ExternalRoster** (R105-F3): pluggable [`PeerSource`] feed —
-//!   society's mesh roster, warden's raft state, anything that can stream
+//!   society's mesh roster, yubaba's raft state, anything that can stream
 //!   `(node_id, addrs)` tuples. Bridged into a `MemoryLookup` updated by
 //!   a background task driven by the source's stream.
 //!
 //! ## Why this layer exists
 //!
-//! Consumers of xlb-net (society, warden, xlb itself) shouldn't each have
+//! Consumers of xlb-net (society, yubaba, xlb itself) shouldn't each have
 //! to assemble their own discovery composition. Putting the aggregator
 //! here means there's one place to standardize defaults and one place to
 //! revisit if iroh's address-lookup model changes between rc.0 and 1.0.
@@ -58,12 +58,12 @@ pub type PeerHintStream = Pin<Box<dyn Stream<Item = PeerHint> + Send + 'static>>
 /// External-roster feed for the discovery aggregator.
 ///
 /// Implementors stream `(node_id, addrs)` hints from outside xlb-net —
-/// society's gossip mesh, warden's raft state, an operator-supplied
+/// society's gossip mesh, yubaba's raft state, an operator-supplied
 /// hint file. `xlb-net` subscribes once at endpoint-bind time and
 /// consumes updates for the life of the [`crate::Endpoint`].
 ///
 /// xlb-net deliberately knows nothing about the source: dependency
-/// direction is one-way (society/warden depend on xlb-net, never the
+/// direction is one-way (society/yubaba depend on xlb-net, never the
 /// reverse). The trait is `Send + Sync + 'static` so a single source can
 /// be shared across crate boundaries via `Arc<dyn PeerSource>`.
 pub trait PeerSource: Send + Sync + 'static {
@@ -75,8 +75,8 @@ pub trait PeerSource: Send + Sync + 'static {
 /// Default pkarr-relay URLs used when [`Discovery::with_relays`] is
 /// called with the result of this function — n0's public pkarr relay.
 ///
-/// Once warden cloud nodes host their own pkarr relays (R105-F4 +
-/// warden's deploy track), this list will be `vec![<warden-url>,
+/// Once yubaba cloud nodes host their own pkarr relays (R105-F4 +
+/// yubaba's deploy track), this list will be `vec![<yubaba-url>,
 /// <n0-fallback>]`. For now it's the n0 fallback only; production
 /// callers should pass their own URLs explicitly.
 pub fn default_relays() -> Vec<Url> {
@@ -130,7 +130,7 @@ impl Discovery {
     }
 
     /// Add pinned `EndpointAddr`s the endpoint should always know about.
-    /// Typical entries: yah-cloud permanent seeds, customer-camp warden.
+    /// Typical entries: yah-cloud permanent seeds, customer-camp yubaba.
     /// Replaces any previously-set static seeds; chain-call to merge.
     pub fn with_static<I>(mut self, seeds: I) -> Self
     where
@@ -152,7 +152,7 @@ impl Discovery {
     /// relay).
     ///
     /// Pass [`default_relays`] for n0's public pkarr relay, or supply
-    /// your own (typically a warden cloud node running an embedded
+    /// your own (typically a yubaba cloud node running an embedded
     /// relay::Server, see R105-F4). Calling with an empty iterator
     /// leaves the swarm lane disabled.
     pub fn with_relays<I>(mut self, urls: I) -> Self
@@ -173,7 +173,7 @@ impl Discovery {
     /// bind time and feeds emitted [`PeerHint`]s into a private
     /// `MemoryLookup` for the life of the endpoint.
     ///
-    /// Multiple roster sources can be layered (society + warden, say)
+    /// Multiple roster sources can be layered (society + yubaba, say)
     /// — each chain call appends another source.
     pub fn with_external_roster<S>(mut self, source: S) -> Self
     where
@@ -185,7 +185,7 @@ impl Discovery {
 
     /// Attach an `Arc<dyn PeerSource>` directly — useful when the same
     /// source is shared across crate boundaries (e.g. society and
-    /// warden both holding the same roster).
+    /// yubaba both holding the same roster).
     pub fn with_external_roster_arc(mut self, source: Arc<dyn PeerSource>) -> Self {
         self.rosters.push(source);
         self

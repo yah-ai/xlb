@@ -62,7 +62,7 @@ pub struct SeedOutcome {
 
 impl R2Target {
     /// Build a target from the environment, reusing the `CF_R2_*` secret shape
-    /// the release pipeline already uses for `publish-warden`.
+    /// the release pipeline already uses for `publish-yubaba`.
     ///
     /// Resolution order (first set wins) per field:
     /// - access key:  `XLB_R2_ACCESS_KEY_ID` → `AWS_ACCESS_KEY_ID` → `CF_R2_ACCESS_KEY_ID`
