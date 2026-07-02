@@ -13,7 +13,7 @@ use xlb::{
     transport::{parse_seed_node_id, BlobTransport, SeedParseError},
     AssetClass, AssetClassConfig, Discovery,
 };
-use xlb_net::{Endpoint, Keypair};
+use mshr::{Endpoint, Keypair};
 
 /// A real, parseable hex `NodeId` lifted off a freshly-generated keypair.
 fn fresh_hex_node_id() -> String {

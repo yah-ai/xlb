@@ -28,7 +28,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 thiserror = "2.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 tracing = "0.1"
-xlb-net = { path = "../xlb-net", version = "0.8.17" }
+mshr = { path = "../../../mshr/crates/mshr", version = "0.8.18" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

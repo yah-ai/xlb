@@ -1,6 +1,6 @@
 //! Integration test: two real iroh peers round-trip a 10 MB blob via iroh-blobs.
 //!
-//! This is the acceptance test for xlb-2. No mocks — two xlb-net Endpoints
+//! This is the acceptance test for xlb-2. No mocks — two mshr Endpoints
 //! connect over loopback QUIC, the iroh-blobs wire protocol transfers the blob,
 //! and xlb's top-level BLAKE3 verifies integrity.
 
@@ -9,7 +9,7 @@ use xlb::{
     transport::BlobTransport,
     AssetClass, AssetClassConfig, FetchTier,
 };
-use xlb_net::{Discovery, Endpoint, Keypair};
+use mshr::{Discovery, Endpoint, Keypair};
 
 /// Spin two in-process iroh peers. Alice seeds a 10 MB blob; Bob fetches it
 /// via iroh-blobs and xlb's fetch chain. Verifies BLAKE3 at the end.

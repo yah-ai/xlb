@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 use anyhow::Result;
 use tokio::sync::broadcast;
 use xlb::{AssetClass, AssetClassConfig, Discovery};
-use xlb_net::Keypair;
+use mshr::Keypair;
 
 use crate::{
     config::{expand_tilde, NodeConfig},

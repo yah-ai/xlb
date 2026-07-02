@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 xlb     = { path = "../xlb" }
-xlb-net = { path = "../xlb-net" }
+mshr    = { path = "../../../mshr/crates/mshr" }
 tokio   = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time", "signal"] }
 serde   = { version = "1", features = ["derive"] }
 serde_json = "1"

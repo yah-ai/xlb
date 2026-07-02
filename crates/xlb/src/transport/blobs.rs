@@ -1,4 +1,4 @@
-//! iroh-blobs adapter — wires iroh-blobs on top of an `xlb-net::Endpoint`.
+//! iroh-blobs adapter — wires iroh-blobs on top of an `mshr::Endpoint`.
 //!
 //! Architecture:
 //! - [`BlobTransport`] owns a [`MemStore`] and an iroh [`Router`] that accepts
@@ -15,7 +15,7 @@
 //!   upload rate cap on the serving side (default: uncapped).
 //!
 //! LAN (mDNS) and Swarm (pkarr / iroh-relay) discovery for tiers 1–2 live
-//! in [`xlb_net::discovery`]; this module owns the static-seed path only.
+//! in [`mshr::discovery`]; this module owns the static-seed path only.
 //!
 //! ## Upload rate limiting
 //!
@@ -46,7 +46,7 @@ use iroh_blobs::{
 };
 use iroh::endpoint::VarInt;
 use tokio::sync::Mutex;
-use xlb_net::{Endpoint, NodeAddr, NodeId};
+use mshr::{Endpoint, NodeAddr, NodeId};
 
 use crate::{
     BwCaps,
@@ -451,7 +451,7 @@ impl BlobSource for IrohFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xlb_net::Keypair;
+    use mshr::Keypair;
 
     async fn make_transport() -> BlobTransport {
         let kp = Keypair::generate();
