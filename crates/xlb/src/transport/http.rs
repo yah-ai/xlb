@@ -37,6 +37,9 @@ impl HttpFetcher {
     pub fn new(url_template: impl Into<String>) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .use_rustls_tls()
+            // Content is BLAKE3-verified, so redirects are never needed; refusing
+            // to follow them closes a CDN-driven redirect-SSRF vector.
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self { url_template: url_template.into(), client })
     }

@@ -1,3 +1,4 @@
+use std::os::unix::fs::PermissionsExt;
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use anyhow::Result;
@@ -62,6 +63,9 @@ impl NodeState {
 pub async fn listen(state: NodeState, socket_path: &str) -> Result<()> {
     let _ = std::fs::remove_file(socket_path);
     let listener = UnixListener::bind(socket_path)?;
+    // Restrict the socket to owner-only (0600) so no other local user can
+    // connect to the control plane, independent of the peer-uid check below.
+    std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o600))?;
     tracing::info!(socket = socket_path, "xlb control socket listening");
 
     loop {
@@ -83,6 +87,25 @@ async fn handle_conn(
     state: NodeState,
     mut stream: tokio::net::UnixStream,
 ) -> Result<()> {
+    // Authenticate the peer by uid: the control socket only serves the daemon's
+    // own user. SO_PEERCRED is kernel-supplied and cannot be spoofed.
+    let our_uid = unsafe { libc::getuid() };
+    match stream.peer_cred() {
+        Ok(cred) if cred.uid() == our_uid => {}
+        Ok(cred) => {
+            tracing::warn!(
+                peer_uid = cred.uid(),
+                our_uid,
+                "rejecting control-socket connection from foreign uid"
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::warn!("rejecting control-socket connection: peer_cred failed: {e}");
+            return Ok(());
+        }
+    }
+
     let (mut reader, mut writer) = stream.split();
 
     loop {
