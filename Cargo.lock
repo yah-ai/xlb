@@ -2442,7 +2442,7 @@ dependencies = [
 
 [[package]]
 name = "mshr"
-version = "0.8.18"
+version = "0.8.20"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5422,7 +5422,7 @@ dependencies = [
 
 [[package]]
 name = "xlb"
-version = "0.8.18"
+version = "0.8.20"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5442,7 +5442,7 @@ dependencies = [
 
 [[package]]
 name = "xlb-cli"
-version = "0.8.18"
+version = "0.8.20"
 dependencies = [
  "anyhow",
  "clap",
