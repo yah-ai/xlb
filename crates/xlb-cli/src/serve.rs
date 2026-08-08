@@ -33,12 +33,15 @@ pub async fn run(config_path: &str, socket_path: &str) -> Result<()> {
     // handle to it — an AssetClass registered without one reports nothing, for
     // the whole life of the process, silently.
     let (event_tx, _) = broadcast::channel(256);
-    let metrics = MetricsSink::new(
+    // R423-T6: one sink, shared by the classes (as their observer) and by the
+    // socket server (as the source for ClassStats counters). Two sinks would
+    // each see half the picture.
+    let metrics = Arc::new(MetricsSink::new(
         node_id.clone(),
         cfg.node.peer_class.clone(),
         event_tx.clone(),
         cfg.node.metrics_path.as_deref(),
-    )?;
+    )?);
 
     for cc in &cfg.classes {
         // AssetClassConfig.name is &'static str; leak each name once at startup.
@@ -85,6 +88,7 @@ pub async fn run(config_path: &str, socket_path: &str) -> Result<()> {
         classes: Arc::new(classes),
         class_meta: Arc::new(class_meta),
         event_tx,
+        metrics,
     };
 
     let state_clone = state.clone();

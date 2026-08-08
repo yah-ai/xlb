@@ -16,6 +16,11 @@ pub struct NodeState {
     /// Class metadata from config (for fields not yet exposed by AssetClass).
     pub class_meta: Arc<HashMap<String, ClassMeta>>,
     pub event_tx: broadcast::Sender<NodeEvent>,
+    /// R423-T6: the same sink the classes observe through, kept here so
+    /// `ClassStats` can report real fetch counts and a recent-fetch tail.
+    /// Sharing one instance is load-bearing — a second sink would count a
+    /// different set of fetches from the one the classes actually emit to.
+    pub metrics: Arc<crate::metrics_sink::MetricsSink>,
 }
 
 /// Config-derived class metadata stored alongside the live AssetClass.
@@ -115,7 +120,7 @@ async fn handle_conn(state: NodeState, mut stream: tokio::net::UnixStream) -> Re
             }
 
             Command::ClassStats { class } => {
-                let stats = build_stats(&state, &class);
+                let stats = build_stats(&state, &class).await;
                 write_frame(&mut writer, &Response::ClassStats(stats)).await?;
             }
 
@@ -160,7 +165,11 @@ async fn handle_conn(state: NodeState, mut stream: tokio::net::UnixStream) -> Re
     Ok(())
 }
 
-fn build_stats(state: &NodeState, class_name: &str) -> ClassStats {
+/// How many recent rows one `ClassStats` reply carries. Small: this is the
+/// "what just happened" strip on an operator card, not a log.
+const RECENT_IN_REPLY: usize = 20;
+
+async fn build_stats(state: &NodeState, class_name: &str) -> ClassStats {
     let meta = state.class_meta.get(class_name);
     let ac = state.classes.get(class_name);
     let gov_state = ac.map(|ac| {
@@ -172,14 +181,45 @@ fn build_stats(state: &NodeState, class_name: &str) -> ClassStats {
         }
     });
 
+    // R423-T6: the cache reading comes from the class itself, so it is the
+    // same number eviction is measured against. Falls back to the configured
+    // budget only when the class isn't registered (an unknown class name),
+    // where every other field is a fallback too.
+    let cache = match ac {
+        Some(ac) => Some(ac.cache_stats().await),
+        None => None,
+    };
+
+    let totals = state.metrics.totals_for(class_name);
+    let recent_fetches = state
+        .metrics
+        .recent_for(class_name, RECENT_IN_REPLY)
+        .into_iter()
+        .map(|m| FetchRecord {
+            timestamp_secs: m.timestamp_secs,
+            class: m.class,
+            hash_short: m.blake3.chars().take(12).collect(),
+            bytes: m.bytes_served,
+            tier: m.tier_source.clone(),
+            ok: m.tier_source != "miss",
+            note: None,
+            peer_id: m.peer_id,
+        })
+        .collect();
+
     ClassStats {
         name: class_name.to_string(),
         role: meta
             .map(|m| m.role.clone())
             .unwrap_or_else(|| "unknown".into()),
         peer_count: 0,
-        cache_bytes: 0,
-        cache_budget_bytes: meta.map(|m| m.cache_budget_bytes).unwrap_or(0),
+        cache_bytes: cache.map(|c| c.bytes).unwrap_or(0),
+        cache_entries: cache.map(|c| c.entries).unwrap_or(0),
+        cache_budget_bytes: cache
+            .map(|c| c.budget_bytes)
+            .or_else(|| meta.map(|m| m.cache_budget_bytes))
+            .unwrap_or(0),
+        cache_disk_backed: cache.map(|c| c.disk_backed).unwrap_or(false),
         upload_kbps: 0.0,
         download_kbps: 0.0,
         governor: gov_state.unwrap_or(GovernorState {
@@ -187,7 +227,10 @@ fn build_stats(state: &NodeState, class_name: &str) -> ClassStats {
             metered: false,
             is_passive: false,
         }),
-        recent_fetches: vec![],
+        fetches_total: totals.fetches,
+        fetches_hit: totals.hits,
+        bytes_served_total: totals.bytes_served,
+        recent_fetches,
     }
 }
 

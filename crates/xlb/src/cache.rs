@@ -70,6 +70,31 @@ pub(crate) enum Cache {
     Disk(DiskCache),
 }
 
+/// A point-in-time reading of one class's cache occupancy (R423-T6).
+///
+/// Exposed because "how full is the cache" is the first question anyone asks
+/// of a running node, and until this existed the control socket answered it
+/// with a hard-coded `0` — a number indistinguishable from an empty cache.
+///
+/// `bytes` is the cache's own accounting, not a `statfs`: for the disk-backed
+/// variant it is the sum of the LRU index's per-entry sizes, which is what
+/// eviction is actually measured against. For the in-memory variant it is the
+/// sum of the buffered blob lengths, so `budget_bytes` does not bound it —
+/// see `disk_backed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CacheStats {
+    /// Bytes currently held.
+    pub bytes: u64,
+    /// Number of blobs currently held.
+    pub entries: u64,
+    /// The configured `cache_budget_bytes`. Only enforced when `disk_backed`.
+    pub budget_bytes: u64,
+    /// `true` for the disk-backed variant. A consumer rendering a
+    /// used/budget bar must check this: the in-memory variant has no LRU and
+    /// no eviction, so a ratio drawn against `budget_bytes` would be fiction.
+    pub disk_backed: bool,
+}
+
 impl Cache {
     /// Build a cache for one `AssetClass`.
     ///
@@ -117,6 +142,31 @@ impl Cache {
         match self {
             Self::Mem(m) => m.contains(hash).await,
             Self::Disk(d) => d.contains(hash).await,
+        }
+    }
+
+    /// Current occupancy. Cheap: both variants read an index already held in
+    /// memory, so this never touches the filesystem.
+    pub(crate) async fn stats(&self, budget_bytes: u64) -> CacheStats {
+        match self {
+            Self::Mem(m) => {
+                let guard = m.inner.read().await;
+                CacheStats {
+                    bytes: guard.values().map(|b| b.len() as u64).sum(),
+                    entries: guard.len() as u64,
+                    budget_bytes,
+                    disk_backed: false,
+                }
+            }
+            Self::Disk(d) => {
+                let guard = d.state.lock().await;
+                CacheStats {
+                    bytes: guard.total_bytes,
+                    entries: guard.entries.len() as u64,
+                    budget_bytes: d.budget_bytes,
+                    disk_backed: true,
+                }
+            }
         }
     }
 }
@@ -574,5 +624,64 @@ mod tests {
         assert!(!dir.join("abc.tmp").exists());
         assert!(!dir.join("def.tmp.123.4").exists());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ── stats() (R423-T6) ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn disk_stats_track_puts_and_report_the_budget() {
+        let dir = tmpdir("stats-disk");
+        let cache = Cache::new(Some(&dir), 1024).unwrap();
+
+        let empty = cache.stats(1024).await;
+        assert_eq!(empty.bytes, 0);
+        assert_eq!(empty.entries, 0);
+        assert!(empty.disk_backed);
+        // The disk variant reports the budget it was OPENED with, not the
+        // argument — those are the same value in practice, and if they ever
+        // diverge the cache's own number is the one eviction obeys.
+        assert_eq!(empty.budget_bytes, 1024);
+
+        let a = Bytes::from(vec![b'A'; 40]);
+        let b = Bytes::from(vec![b'B'; 60]);
+        cache.put(BlakeHash::hash(&a), a.clone()).await.unwrap();
+        cache.put(BlakeHash::hash(&b), b.clone()).await.unwrap();
+
+        let s = cache.stats(1024).await;
+        assert_eq!(s.bytes, 100, "40 + 60");
+        assert_eq!(s.entries, 2);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn disk_stats_shrink_after_eviction() {
+        // The number a used/budget bar is drawn from must come DOWN when the
+        // LRU evicts, or the bar reads over-full forever.
+        let dir = tmpdir("stats-evict");
+        let cache = Cache::new(Some(&dir), 100).unwrap();
+        for byte in [b'A', b'B', b'C'] {
+            let blob = Bytes::from(vec![byte; 40]);
+            cache.put(BlakeHash::hash(&blob), blob).await.unwrap();
+        }
+        let s = cache.stats(100).await;
+        assert_eq!(s.entries, 2, "third put evicts the oldest under a 100B budget");
+        assert_eq!(s.bytes, 80);
+        assert!(s.bytes <= s.budget_bytes);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn mem_stats_are_marked_not_disk_backed() {
+        // The in-memory variant has no eviction, so a consumer must be able to
+        // tell that `budget_bytes` does not bound `bytes` here.
+        let cache = Cache::new(None, 100).unwrap();
+        let blob = Bytes::from(vec![b'X'; 250]);
+        cache.put(BlakeHash::hash(&blob), blob).await.unwrap();
+
+        let s = cache.stats(100).await;
+        assert_eq!(s.bytes, 250, "no eviction: the budget was blown past");
+        assert_eq!(s.entries, 1);
+        assert!(!s.disk_backed);
+        assert_eq!(s.budget_bytes, 100);
     }
 }

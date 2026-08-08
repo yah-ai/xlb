@@ -23,6 +23,7 @@ pub mod transport;
 pub(crate) mod verify;
 
 pub use bandwidth::BandwidthGovernor;
+pub use cache::CacheStats;
 pub use metrics::{FetchObserver, FetchReport};
 pub use seed::{derive_key, seed_blob, R2Target, SeedOutcome};
 pub(crate) use source::BlobSource;
@@ -389,6 +390,18 @@ impl AssetClass {
     /// Notify the governor that metered-connection state changed.
     pub fn set_metered(&self, metered: bool) {
         self.0.governor.set_metered(metered);
+    }
+
+    /// Current cache occupancy for this class (R423-T6).
+    ///
+    /// Reads an in-memory index; no filesystem access, so it is safe to poll
+    /// from an operator surface on a timer. See [`CacheStats::disk_backed`]
+    /// before drawing a used-vs-budget ratio.
+    pub async fn cache_stats(&self) -> CacheStats {
+        self.0
+            .cache
+            .stats(self.0.config.cache_budget_bytes)
+            .await
     }
 
     /// Add a fetch source to the chain (e.g. a transport adapter or mock peer).

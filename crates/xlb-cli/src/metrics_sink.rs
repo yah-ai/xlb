@@ -29,6 +29,7 @@
 //! ever becomes a network client, that inverts and it must move behind a
 //! channel; the seam is here, not in core.
 
+use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -36,7 +37,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::broadcast;
 use xlb::{FetchObserver, FetchReport};
 
-use crate::socket::protocol::{FetchMetric, NodeEvent};
+use crate::socket::protocol::{ClassTotals, FetchMetric, NodeEvent};
+
+/// How many recent fetch rows the node keeps per process, across all classes.
+///
+/// Bounded on purpose: this is a live-inspection tail, not storage. The
+/// durable record is the NDJSON file; anything that needs history reads that.
+const RECENT_CAP: usize = 256;
 
 /// Everything the emitter needs that a [`FetchReport`] does not carry: who is
 /// reporting, and where to put it.
@@ -50,6 +57,21 @@ pub struct MetricsSink {
     /// mid-line — a half-written JSON row is worse than a dropped one, because
     /// it breaks the reader rather than the reading.
     file: Option<Arc<Mutex<std::fs::File>>>,
+    /// R423-T6: in-process tail + cumulative counters, so `ClassStats` can
+    /// answer "how many fetches, how many hits, who served them" without a
+    /// collector being deployed first. `std::sync::Mutex` rather than tokio's
+    /// because [`MetricsSink::emit`] is called from a synchronous
+    /// [`FetchObserver`] and must not await; every critical section here is a
+    /// push and a couple of adds.
+    recent: Arc<Mutex<Recent>>,
+}
+
+#[derive(Default)]
+struct Recent {
+    /// Oldest at the front. Capped at [`RECENT_CAP`] rows total.
+    rows: VecDeque<FetchMetric>,
+    /// Cumulative, uncapped, keyed by class name.
+    totals: HashMap<String, ClassTotals>,
 }
 
 impl MetricsSink {
@@ -89,7 +111,35 @@ impl MetricsSink {
             peer_class,
             event_tx,
             file,
+            recent: Arc::new(Mutex::new(Recent::default())),
         })
+    }
+
+    /// Cumulative counters for `class` since node start. A class that has
+    /// served nothing yet reports all zeros — which is a true statement about
+    /// it, unlike the hard-coded zeros this replaced.
+    pub fn totals_for(&self, class: &str) -> ClassTotals {
+        self.with_recent(|r| r.totals.get(class).copied().unwrap_or_default())
+    }
+
+    /// The most recent `limit` fetch rows for `class`, oldest first.
+    pub fn recent_for(&self, class: &str, limit: usize) -> Vec<FetchMetric> {
+        self.with_recent(|r| {
+            let matching: Vec<FetchMetric> =
+                r.rows.iter().filter(|m| m.class == class).cloned().collect();
+            let skip = matching.len().saturating_sub(limit);
+            matching[skip..].to_vec()
+        })
+    }
+
+    /// A poisoned lock must not take the daemon down over telemetry — the
+    /// same call this module already makes for the file handle.
+    fn with_recent<T>(&self, f: impl FnOnce(&mut Recent) -> T) -> T {
+        let mut guard = match self.recent.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        f(&mut guard)
     }
 
     /// Project a core [`FetchReport`] into the wire row.
@@ -113,6 +163,25 @@ impl MetricsSink {
     /// Emit one report to both transports.
     pub fn emit(&self, report: &FetchReport) {
         let metric = self.to_metric(report);
+
+        // R423-T6: record BEFORE the transports. The in-process tail is what
+        // `xlb inspect` and the desktop card read, and it is the only one that
+        // works with no collector and no subscriber attached.
+        self.with_recent(|r| {
+            let t = r.totals.entry(metric.class.clone()).or_default();
+            t.fetches += 1;
+            // `tier_source` is "miss" exactly when no tier served the blob —
+            // see FetchReport::tier_label.
+            if metric.tier_source != "miss" {
+                t.hits += 1;
+            }
+            t.bytes_served += metric.bytes_served;
+
+            if r.rows.len() == RECENT_CAP {
+                r.rows.pop_front();
+            }
+            r.rows.push_back(metric.clone());
+        });
 
         // A send with no subscribers is an Err and is entirely normal — nobody
         // is watching most of the time. Dropping it is correct; the file sink
@@ -288,5 +357,83 @@ mod tests {
         let from_file: FetchMetric =
             serde_json::from_str(std::fs::read_to_string(&path).unwrap().trim()).unwrap();
         assert_eq!(from_socket, from_file);
+    }
+
+    // ── in-process tail + totals (R423-T6) ─────────────────────────────────
+
+    #[test]
+    fn totals_count_fetches_hits_and_bytes_separately() {
+        // The hit RATE is the point: counting only hits gives a numerator with
+        // no denominator, which is what ClassStats used to report.
+        let (s, _rx) = sink(None);
+        s.emit(&report(Some(FetchTier::Seed), Some("p1"), 100));
+        s.emit(&report(Some(FetchTier::Cache), None, 50));
+        s.emit(&report(None, None, 0)); // miss
+
+        let t = s.totals_for("yah-cli");
+        assert_eq!(t.fetches, 3);
+        assert_eq!(t.hits, 2);
+        assert_eq!(t.bytes_served, 150);
+    }
+
+    #[test]
+    fn totals_are_per_class_and_unknown_classes_read_zero() {
+        let (s, _rx) = sink(None);
+        s.emit(&report(Some(FetchTier::Cdn), None, 7));
+        assert_eq!(s.totals_for("yah-cli").fetches, 1);
+        // Not "no data" dressed up as activity — a class nobody has fetched
+        // from reports zeros, and that is a true statement about it.
+        assert_eq!(s.totals_for("whisper-ggml"), Default::default());
+    }
+
+    #[test]
+    fn the_recent_tail_keeps_the_newest_rows_and_stays_bounded() {
+        let (s, _rx) = sink(None);
+        for i in 0..(RECENT_CAP + 10) {
+            s.emit(&report(Some(FetchTier::Lan), Some("p"), i as u64));
+        }
+        // Cumulative counters are NOT capped by the tail.
+        assert_eq!(s.totals_for("yah-cli").fetches, (RECENT_CAP + 10) as u64);
+
+        let tail = s.recent_for("yah-cli", RECENT_CAP * 2);
+        assert_eq!(tail.len(), RECENT_CAP, "the ring is bounded");
+        assert_eq!(
+            tail.last().unwrap().bytes_served,
+            (RECENT_CAP + 9) as u64,
+            "newest row is last"
+        );
+        assert_eq!(
+            tail.first().unwrap().bytes_served,
+            10,
+            "the ten oldest rows were dropped, not the ten newest"
+        );
+    }
+
+    #[test]
+    fn the_recent_tail_filters_by_class_before_limiting() {
+        // Limiting first and filtering second would let a busy class starve a
+        // quiet one out of its own card.
+        let (s, _rx) = sink(None);
+        let mut other = report(Some(FetchTier::Swarm), Some("p"), 1);
+        other.class = "whisper-ggml";
+        for _ in 0..50 {
+            s.emit(&other);
+        }
+        s.emit(&report(Some(FetchTier::Seed), Some("p9"), 999));
+
+        let tail = s.recent_for("yah-cli", 20);
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].bytes_served, 999);
+        assert_eq!(tail[0].peer_id.as_deref(), Some("p9"));
+    }
+
+    #[test]
+    fn a_miss_lands_in_the_tail_too() {
+        let (s, _rx) = sink(None);
+        s.emit(&report(None, None, 0));
+        let tail = s.recent_for("yah-cli", 5);
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].tier_source, "miss");
+        assert!(tail[0].peer_id.is_none());
     }
 }

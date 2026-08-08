@@ -164,6 +164,9 @@ impl App {
                         tier,
                         ok: true,
                         note: None,
+                        // FetchCompleted doesn't carry the serving peer; the
+                        // ClassStats poll fills that in from the metrics tail.
+                        peer_id: None,
                     };
                     if let Some(s) = self.class_stats.iter_mut().find(|s| s.name == class) {
                         s.recent_fetches.push(record);
