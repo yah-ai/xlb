@@ -1,7 +1,10 @@
 use anyhow::{Context, Result};
 use tokio::net::UnixStream;
 
-use super::{protocol::{Command, Response}, read_frame, write_frame};
+use super::{
+    protocol::{Command, Response},
+    read_frame, write_frame,
+};
 
 /// A short-lived request-response connection to the xlb node control socket.
 pub struct Client {
@@ -10,14 +13,12 @@ pub struct Client {
 
 impl Client {
     pub async fn connect(socket_path: &str) -> Result<Self> {
-        let stream = UnixStream::connect(socket_path)
-            .await
-            .with_context(|| {
-                format!(
-                    "cannot connect to xlb node at {socket_path}\n\
+        let stream = UnixStream::connect(socket_path).await.with_context(|| {
+            format!(
+                "cannot connect to xlb node at {socket_path}\n\
                      hint: start it with `xlb serve --config xlb-node.json`"
-                )
-            })?;
+            )
+        })?;
         Ok(Self { stream })
     }
 

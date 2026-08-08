@@ -41,7 +41,10 @@ impl Verifier {
     pub fn finish(self) -> Result<Bytes> {
         let actual = BlakeHash::from_bytes(*self.hasher.finalize().as_bytes());
         if actual != self.expected {
-            return Err(Error::HashMismatch { expected: self.expected, actual });
+            return Err(Error::HashMismatch {
+                expected: self.expected,
+                actual,
+            });
         }
         Ok(self.buf.freeze())
     }

@@ -89,7 +89,9 @@ impl R2Target {
                 first_env(&["CF_R2_ACCOUNT_ID"])
                     .map(|id| format!("https://{id}.r2.cloudflarestorage.com"))
             })
-            .ok_or_else(|| anyhow::anyhow!("no R2 endpoint (set XLB_R2_ENDPOINT or CF_R2_ACCOUNT_ID)"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!("no R2 endpoint (set XLB_R2_ENDPOINT or CF_R2_ACCOUNT_ID)")
+            })?;
 
         let bucket = first_env(&["XLB_R2_BUCKET"])
             .ok_or_else(|| anyhow::anyhow!("no R2 bucket (set XLB_R2_BUCKET)"))?;
@@ -240,7 +242,10 @@ impl R2Target {
     }
 
     fn signing_key(&self, datestamp: &str, service: &str) -> Vec<u8> {
-        let k_date = hmac(format!("AWS4{}", self.secret_key).as_bytes(), datestamp.as_bytes());
+        let k_date = hmac(
+            format!("AWS4{}", self.secret_key).as_bytes(),
+            datestamp.as_bytes(),
+        );
         let k_region = hmac(&k_date, self.region.as_bytes());
         let k_service = hmac(&k_region, service.as_bytes());
         hmac(&k_service, b"aws4_request")
@@ -258,10 +263,18 @@ pub async fn seed_blob(
     let size = bytes.len() as u64;
     if let Some(existing) = target.head_object(key).await? {
         tracing::debug!(%key, existing, "blob already seeded — skipping PUT");
-        return Ok(SeedOutcome { key: key.to_string(), size: existing, already_present: true });
+        return Ok(SeedOutcome {
+            key: key.to_string(),
+            size: existing,
+            already_present: true,
+        });
     }
     target.put_object(key, &bytes).await?;
-    Ok(SeedOutcome { key: key.to_string(), size, already_present: false })
+    Ok(SeedOutcome {
+        key: key.to_string(),
+        size,
+        already_present: false,
+    })
 }
 
 /// Derive the S3 key from a class's `cdn_fallback` URL template by taking its
@@ -283,13 +296,16 @@ pub fn derive_key(cdn_fallback: &str, hash: &BlakeHash) -> anyhow::Result<String
     if !path.contains("{blake3}") {
         anyhow::bail!("cdn_fallback template missing {{blake3}} token: {cdn_fallback}");
     }
-    Ok(path.trim_start_matches('/').replace("{blake3}", &hash.to_hex()))
+    Ok(path
+        .trim_start_matches('/')
+        .replace("{blake3}", &hash.to_hex()))
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 fn first_env(keys: &[&str]) -> Option<String> {
-    keys.iter().find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+    keys.iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
 }
 
 fn now_unix() -> u64 {
@@ -355,11 +371,20 @@ mod tests {
     #[test]
     fn date_formatter_known_timestamps() {
         // 2013-05-24T00:00:00Z = 1369353600 (AWS SigV4 doc example date)
-        assert_eq!(format_amz_time(1_369_353_600), ("20130524T000000Z".into(), "20130524".into()));
+        assert_eq!(
+            format_amz_time(1_369_353_600),
+            ("20130524T000000Z".into(), "20130524".into())
+        );
         // 1970-01-01T00:00:00Z
-        assert_eq!(format_amz_time(0), ("19700101T000000Z".into(), "19700101".into()));
+        assert_eq!(
+            format_amz_time(0),
+            ("19700101T000000Z".into(), "19700101".into())
+        );
         // 2026-06-21T13:45:07Z = 1782049507
-        assert_eq!(format_amz_time(1_782_049_507), ("20260621T134507Z".into(), "20260621".into()));
+        assert_eq!(
+            format_amz_time(1_782_049_507),
+            ("20260621T134507Z".into(), "20260621".into())
+        );
     }
 
     #[test]
@@ -400,7 +425,8 @@ mod tests {
         let (auth2, date2) = t.sign("HEAD", "yah-cli/abc", &payload, 1_782_049_507);
         assert_eq!(auth1, auth2);
         assert_eq!(date1, "20260621T134507Z");
-        assert!(auth1.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260621/auto/s3/aws4_request"));
+        assert!(auth1
+            .starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260621/auto/s3/aws4_request"));
         assert!(auth1.contains("SignedHeaders=host;x-amz-content-sha256;x-amz-date"));
         // Different key → different signature.
         let (auth3, _) = t.sign("HEAD", "yah-cli/xyz", &payload, 1_782_049_507);
@@ -410,7 +436,10 @@ mod tests {
     #[test]
     fn canonical_uri_is_path_style_and_encoded() {
         let t = R2Target::new("https://h", "yah-dev", "auto", "a", "b").unwrap();
-        assert_eq!(t.canonical_uri("yah-cli/deadbeef"), "/yah-dev/yah-cli/deadbeef");
+        assert_eq!(
+            t.canonical_uri("yah-cli/deadbeef"),
+            "/yah-dev/yah-cli/deadbeef"
+        );
     }
 
     /// Spin a one-request HTTP/1.1 mock that captures the request line +
@@ -520,7 +549,9 @@ mod tests {
         // HEAD returns 200 → seed_blob must report already_present and NOT PUT.
         let (base, rx) = mock_server(200, "");
         let t = R2Target::new(base, "yah-dev", "auto", "AKID", "SECRET").unwrap();
-        let outcome = seed_blob(&t, "yah-cli/abc", Bytes::from_static(b"xx")).await.unwrap();
+        let outcome = seed_blob(&t, "yah-cli/abc", Bytes::from_static(b"xx"))
+            .await
+            .unwrap();
         assert!(outcome.already_present);
 
         // The single captured request must be the HEAD, never a PUT.

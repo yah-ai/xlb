@@ -5,11 +5,8 @@
 //! and xlb's top-level BLAKE3 verifies integrity.
 
 use bytes::Bytes;
-use xlb::{
-    transport::BlobTransport,
-    AssetClass, AssetClassConfig, FetchTier,
-};
 use mshr::{Discovery, Endpoint, Keypair};
+use xlb::{transport::BlobTransport, AssetClass, AssetClassConfig, FetchTier};
 
 /// Spin two in-process iroh peers. Alice seeds a 10 MB blob; Bob fetches it
 /// via iroh-blobs and xlb's fetch chain. Verifies BLAKE3 at the end.
@@ -47,9 +44,7 @@ async fn blobs_transport_round_trip() {
         .await
         .expect("bob bind");
 
-    let bob = BlobTransport::new(bob_ep)
-        .await
-        .expect("bob transport");
+    let bob = BlobTransport::new(bob_ep).await.expect("bob transport");
 
     // Wire Bob's iroh fetcher into an AssetClass at the Seed tier.
     let class = AssetClass::register(AssetClassConfig::default())
@@ -59,11 +54,7 @@ async fn blobs_transport_round_trip() {
 
     // ── Fetch and verify ──────────────────────────────────────────────────────
 
-    let fetched = class
-        .asset(hash)
-        .fetch()
-        .await
-        .expect("fetch failed");
+    let fetched = class.asset(hash).fetch().await.expect("fetch failed");
 
     assert_eq!(fetched.len(), 10 * 1024 * 1024, "size mismatch");
     assert_eq!(&fetched[..], &data[..], "content mismatch");
@@ -111,7 +102,10 @@ async fn blobs_transport_cache_hit_on_second_fetch() {
     assert_eq!(&first[..], data);
 
     // Second fetch: hits xlb's in-memory cache, no iroh-blobs connection needed.
-    assert!(asset.is_cached().await, "should be cached after first fetch");
+    assert!(
+        asset.is_cached().await,
+        "should be cached after first fetch"
+    );
     let second = asset.fetch().await.expect("second fetch");
     assert_eq!(&second[..], data);
 

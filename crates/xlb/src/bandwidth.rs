@@ -66,7 +66,10 @@ pub struct BandwidthGovernor {
 impl BandwidthGovernor {
     /// Create a governor wrapping `policy`. Starts in AC / unmetered mode.
     pub fn new(policy: BandwidthPolicy) -> Self {
-        Self { policy, state: Arc::new(RwLock::new(GovernorState::default())) }
+        Self {
+            policy,
+            state: Arc::new(RwLock::new(GovernorState::default())),
+        }
     }
 
     /// Return effective [`BwCaps`] for `tier`.
@@ -192,9 +195,27 @@ mod tests {
 
     fn policy() -> BandwidthPolicy {
         BandwidthPolicy::default()
-            .role(PeerTier::Cloud, BwCaps { up_mbit: 1000, down_mbit: 10_000 })
-            .role(PeerTier::Camp, BwCaps { up_mbit: 10, down_mbit: 100 })
-            .role(PeerTier::Workstation, BwCaps { up_mbit: 5, down_mbit: 50 })
+            .role(
+                PeerTier::Cloud,
+                BwCaps {
+                    up_mbit: 1000,
+                    down_mbit: 10_000,
+                },
+            )
+            .role(
+                PeerTier::Camp,
+                BwCaps {
+                    up_mbit: 10,
+                    down_mbit: 100,
+                },
+            )
+            .role(
+                PeerTier::Workstation,
+                BwCaps {
+                    up_mbit: 5,
+                    down_mbit: 50,
+                },
+            )
             .role(PeerTier::Mobile, BwCaps::passive())
     }
 
@@ -265,7 +286,10 @@ mod tests {
         let g2 = g1.clone();
 
         g1.set_battery(true);
-        assert!(g2.is_passive(), "clone must share Arc<RwLock<GovernorState>>");
+        assert!(
+            g2.is_passive(),
+            "clone must share Arc<RwLock<GovernorState>>"
+        );
     }
 
     #[test]

@@ -25,3 +25,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 anyhow  = "1"
 libc    = "0.2"
+
+[dev-dependencies]
+# R423-T7: the metrics file sink is tested against real files, not a mock —
+# append-across-restart and one-row-per-fetch are filesystem behaviours.
+tempfile = "3"

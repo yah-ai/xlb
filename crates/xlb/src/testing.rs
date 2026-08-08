@@ -24,6 +24,9 @@ use crate::{
 /// A single virtual peer holding a set of blobs (in-memory).
 pub struct MockPeer {
     blobs: HashMap<BlakeHash, Vec<u8>>,
+    /// Stand-in `NodeId` reported through [`BlobSource::peer_id`] (R423-T7).
+    /// `None` mimics a source with no peer identity, like cache or CDN.
+    id: Option<String>,
 }
 
 impl Default for MockPeer {
@@ -34,7 +37,18 @@ impl Default for MockPeer {
 
 impl MockPeer {
     pub fn new() -> Self {
-        Self { blobs: HashMap::new() }
+        Self {
+            blobs: HashMap::new(),
+            id: None,
+        }
+    }
+
+    /// Give this peer an identity, so a [`crate::FetchReport`] produced by
+    /// fetching from it carries a `peer_id`. Without this, per-peer attribution
+    /// is untestable — which is how it would ship broken.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// Register `data` keyed by its BLAKE3 hash.
@@ -57,6 +71,7 @@ impl MockPeer {
 struct MockBlobSource {
     tier: FetchTier,
     blobs: Arc<HashMap<BlakeHash, Vec<u8>>>,
+    peer_id: Option<String>,
 }
 
 #[async_trait]
@@ -67,6 +82,10 @@ impl BlobSource for MockBlobSource {
 
     async fn fetch_raw(&self, hash: &BlakeHash) -> Option<Bytes> {
         self.blobs.get(hash).map(|v| Bytes::from(v.clone()))
+    }
+
+    fn peer_id(&self) -> Option<String> {
+        self.peer_id.clone()
     }
 }
 
@@ -141,44 +160,44 @@ impl MockSwarm {
 
     /// Attach mock peers to an already-registered class.
     pub fn attach(&self, class: &AssetClass) {
-        // Merge all peers at each tier into one source per tier.
-        let mut lan: HashMap<BlakeHash, Vec<u8>> = HashMap::new();
-        for p in &self.lan_peers {
-            lan.extend(p.blobs.clone());
-        }
-        if !lan.is_empty() {
-            class.add_source(Arc::new(MockBlobSource {
-                tier: FetchTier::Lan,
-                blobs: Arc::new(lan),
-            }));
-        }
+        // Merge all peers at each tier into one source per tier. The merged
+        // source reports the first declared id at that tier — enough to prove
+        // attribution flows, without pretending one source is several peers.
+        let merge = |peers: &[MockPeer]| -> (HashMap<BlakeHash, Vec<u8>>, Option<String>) {
+            let mut blobs = HashMap::new();
+            let mut id = None;
+            for p in peers {
+                blobs.extend(p.blobs.clone());
+                if id.is_none() {
+                    id = p.id.clone();
+                }
+            }
+            (blobs, id)
+        };
 
-        let mut swarm: HashMap<BlakeHash, Vec<u8>> = HashMap::new();
-        for p in &self.swarm_peers {
-            swarm.extend(p.blobs.clone());
-        }
-        if !swarm.is_empty() {
-            class.add_source(Arc::new(MockBlobSource {
-                tier: FetchTier::Swarm,
-                blobs: Arc::new(swarm),
-            }));
-        }
-
-        let mut seeds: HashMap<BlakeHash, Vec<u8>> = HashMap::new();
-        for p in &self.seeds {
-            seeds.extend(p.blobs.clone());
-        }
-        if !seeds.is_empty() {
-            class.add_source(Arc::new(MockBlobSource {
-                tier: FetchTier::Seed,
-                blobs: Arc::new(seeds),
-            }));
+        for (tier, peers) in [
+            (FetchTier::Lan, &self.lan_peers),
+            (FetchTier::Swarm, &self.swarm_peers),
+            (FetchTier::Seed, &self.seeds),
+        ] {
+            let (blobs, peer_id) = merge(peers);
+            if !blobs.is_empty() {
+                class.add_source(Arc::new(MockBlobSource {
+                    tier,
+                    blobs: Arc::new(blobs),
+                    peer_id,
+                }));
+            }
         }
 
         if let Some(cdn) = &self.cdn {
             class.add_source(Arc::new(MockBlobSource {
                 tier: FetchTier::Cdn,
                 blobs: Arc::new(cdn.blobs.clone()),
+                // Deliberately not `cdn.id`: the CDN tier is HTTP and has no
+                // NodeId in production, so the mock must not be able to prove
+                // an attribution the real system cannot produce.
+                peer_id: None,
             }));
         }
     }
@@ -215,9 +234,15 @@ mod tests {
         let (class, hash) = lan_class(data).await;
         let asset = class.asset(hash);
 
-        assert!(!asset.is_cached().await, "should not be cached before first fetch");
+        assert!(
+            !asset.is_cached().await,
+            "should not be cached before first fetch"
+        );
         let _ = asset.fetch().await.unwrap();
-        assert!(asset.is_cached().await, "should be cached after first fetch");
+        assert!(
+            asset.is_cached().await,
+            "should be cached after first fetch"
+        );
 
         let fetched = asset.fetch().await.unwrap();
         assert_eq!(&fetched[..], data);

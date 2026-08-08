@@ -31,27 +31,26 @@ use std::{
     future::Future,
     io,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicU32, Ordering},
+        Arc,
     },
     time::Instant,
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use iroh::endpoint::VarInt;
 use iroh_blobs::{
-    provider::{StreamPair, handle_stream, events::EventSender},
+    provider::{events::EventSender, handle_stream, StreamPair},
     store::mem::MemStore,
     Hash as IrohHash,
 };
-use iroh::endpoint::VarInt;
-use tokio::sync::Mutex;
 use mshr::{Endpoint, NodeAddr, NodeId};
+use tokio::sync::Mutex;
 
 use crate::{
-    BwCaps,
     source::{BlobSource, FetchTier},
-    AssetClass, BlakeHash,
+    AssetClass, BlakeHash, BwCaps,
 };
 
 // ─── Hash conversion ─────────────────────────────────────────────────────────
@@ -94,7 +93,10 @@ impl UploadLimiter {
         Arc::new(Self {
             cap_kbits: AtomicU32::new(0),
             seeding_enabled: AtomicBool::new(true),
-            state: Mutex::new(LimiterState { tokens: 0.0, last_tick: Instant::now() }),
+            state: Mutex::new(LimiterState {
+                tokens: 0.0,
+                last_tick: Instant::now(),
+            }),
         })
     }
 
@@ -162,13 +164,19 @@ struct RateLimitedSendStream {
 impl iroh_blobs::util::SendStream for RateLimitedSendStream {
     async fn send_bytes(&mut self, bytes: Bytes) -> io::Result<()> {
         self.limiter.acquire(bytes.len()).await;
-        Ok(self.inner.write_chunk(bytes).await
+        Ok(self
+            .inner
+            .write_chunk(bytes)
+            .await
             .map_err(|e| io::Error::other(e))?)
     }
 
     async fn send(&mut self, buf: &[u8]) -> io::Result<()> {
         self.limiter.acquire(buf.len()).await;
-        Ok(self.inner.write_all(buf).await
+        Ok(self
+            .inner
+            .write_all(buf)
+            .await
             .map_err(|e| io::Error::other(e))?)
     }
 
@@ -181,7 +189,10 @@ impl iroh_blobs::util::SendStream for RateLimitedSendStream {
     }
 
     async fn stopped(&mut self) -> io::Result<Option<VarInt>> {
-        Ok(self.inner.stopped().await
+        Ok(self
+            .inner
+            .stopped()
+            .await
             .map_err(|e| io::Error::other(e))?
             .map(|e| e.into()))
     }
@@ -230,7 +241,10 @@ impl iroh::protocol::ProtocolHandler for RatedBlobsProtocol {
                     Ok(pair) => pair,
                     Err(_) => break,
                 };
-                let rated_writer = RateLimitedSendStream { inner: writer, limiter: limiter.clone() };
+                let rated_writer = RateLimitedSendStream {
+                    inner: writer,
+                    limiter: limiter.clone(),
+                };
                 let pair = StreamPair::new(conn_id, reader, rated_writer, events.clone());
                 let store = store.clone();
                 tokio::spawn(async move {
@@ -274,11 +288,19 @@ impl BlobTransport {
     pub async fn new(endpoint: Endpoint) -> anyhow::Result<Self> {
         let store = MemStore::new();
         let upload_limiter = UploadLimiter::new();
-        let rated_proto = RatedBlobsProtocol { store: store.clone(), limiter: upload_limiter.clone() };
+        let rated_proto = RatedBlobsProtocol {
+            store: store.clone(),
+            limiter: upload_limiter.clone(),
+        };
         let router = iroh::protocol::Router::builder(endpoint.inner().clone())
             .accept(iroh_blobs::ALPN, rated_proto)
             .spawn();
-        Ok(Self { store, router, endpoint, upload_limiter })
+        Ok(Self {
+            store,
+            router,
+            endpoint,
+            upload_limiter,
+        })
     }
 
     /// Set the upload rate cap for the seeding side (mbit/s resolution).
@@ -305,7 +327,8 @@ impl BlobTransport {
     /// Takes effect on all subsequent stream-accept calls immediately.
     pub fn set_seeding_cap(&self, enabled: bool, kbits: u32) {
         self.upload_limiter.set_enabled(enabled);
-        self.upload_limiter.set_kbits(if enabled { kbits } else { 0 });
+        self.upload_limiter
+            .set_kbits(if enabled { kbits } else { 0 });
     }
 
     /// Add a blob to the local store so it can be served to remote peers.
@@ -314,7 +337,11 @@ impl BlobTransport {
     pub async fn add_blob(&self, data: impl Into<Bytes>) -> anyhow::Result<BlakeHash> {
         let data: Bytes = data.into();
         let xlb_hash = BlakeHash::hash(&data);
-        let mut tt = self.store.add_bytes(data).temp_tag().await
+        let mut tt = self
+            .store
+            .add_bytes(data)
+            .temp_tag()
+            .await
             .map_err(|e| anyhow::anyhow!("iroh-blobs add_bytes: {e}"))?;
         // Leak the temp tag so the blob is never GC'd for the life of this transport.
         tt.leak();
@@ -416,6 +443,13 @@ impl BlobSource for IrohFetcher {
         self.tier
     }
 
+    /// The dialled peer's `NodeId` — this is the one source type that has one,
+    /// and it is what makes R423-T7's per-peer attribution possible at the LAN,
+    /// swarm and seed tiers.
+    fn peer_id(&self) -> Option<String> {
+        Some(self.peer.id.to_string())
+    }
+
     async fn fetch_raw(&self, hash: &BlakeHash) -> Option<Bytes> {
         let iroh_hash = to_iroh(hash);
 
@@ -465,13 +499,19 @@ mod tests {
         assert_eq!(t.upload_limiter.cap_kbits.load(Ordering::Relaxed), 0);
 
         // mbit-resolution API converts to kbits internally
-        t.set_upload_cap(Some(&BwCaps { up_mbit: 5, down_mbit: 50 }));
+        t.set_upload_cap(Some(&BwCaps {
+            up_mbit: 5,
+            down_mbit: 50,
+        }));
         assert_eq!(t.upload_limiter.cap_kbits.load(Ordering::Relaxed), 5_000);
 
         t.set_upload_cap(None);
         assert_eq!(t.upload_limiter.cap_kbits.load(Ordering::Relaxed), 0);
 
-        t.set_upload_cap(Some(&BwCaps { up_mbit: 0, down_mbit: 10 }));
+        t.set_upload_cap(Some(&BwCaps {
+            up_mbit: 0,
+            down_mbit: 10,
+        }));
         assert_eq!(t.upload_limiter.cap_kbits.load(Ordering::Relaxed), 0);
 
         // kbits-resolution API (for sub-mbit values)
@@ -494,7 +534,10 @@ mod tests {
             limiter.acquire(65536).await;
         }
         // 100 × 64 KB with no cap should complete in well under 100 ms.
-        assert!(start.elapsed().as_millis() < 100, "uncapped acquire should be near-instant");
+        assert!(
+            start.elapsed().as_millis() < 100,
+            "uncapped acquire should be near-instant"
+        );
     }
 
     #[tokio::test]
@@ -517,7 +560,7 @@ mod tests {
     async fn upload_limiter_cap_can_be_lifted() {
         let limiter = UploadLimiter::new();
         limiter.set_kbits(1000); // 1000 kbit/s
-        limiter.set_kbits(0);    // lift cap
+        limiter.set_kbits(0); // lift cap
 
         let start = tokio::time::Instant::now();
         limiter.acquire(1_000_000).await; // 1 MB — instant with no cap

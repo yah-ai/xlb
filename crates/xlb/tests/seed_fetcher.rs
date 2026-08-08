@@ -9,11 +9,11 @@
 //! - Malformed entries → typed [`SeedParseError`], reported with index,
 //!   the well-formed entries in the same list still attach.
 
+use mshr::{Endpoint, Keypair};
 use xlb::{
     transport::{parse_seed_node_id, BlobTransport, SeedParseError},
     AssetClass, AssetClassConfig, Discovery,
 };
-use mshr::{Endpoint, Keypair};
 
 /// A real, parseable hex `NodeId` lifted off a freshly-generated keypair.
 fn fresh_hex_node_id() -> String {
@@ -47,10 +47,7 @@ fn seed_fetcher_parses_trims_whitespace() {
 #[test]
 fn seed_fetcher_rejects_non_hex() {
     let err = parse_seed_node_id("not actually hex zzz").unwrap_err();
-    assert!(
-        matches!(err, SeedParseError::InvalidHex),
-        "got {err:?}"
-    );
+    assert!(matches!(err, SeedParseError::InvalidHex), "got {err:?}");
 }
 
 #[test]
@@ -137,10 +134,10 @@ async fn seed_fetcher_attach_mixed_good_and_bad_does_not_panic() {
     let transport = fresh_transport().await;
     let class = AssetClass::register(AssetClassConfig {
         permanent_seeds: vec![
-            fresh_hex_node_id(),         // 0: good
+            fresh_hex_node_id(),          // 0: good
             "not-hex-at-all".to_string(), // 1: bad — InvalidHex
-            fresh_hex_node_id(),         // 2: good
-            "aa".repeat(30),             // 3: bad — InvalidLength
+            fresh_hex_node_id(),          // 2: good
+            "aa".repeat(30),              // 3: bad — InvalidLength
         ],
         discovery: Discovery::none(),
         cdn_fallback: None,

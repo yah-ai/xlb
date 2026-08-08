@@ -1,12 +1,13 @@
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Instant};
 
 use anyhow::Result;
+use mshr::Keypair;
 use tokio::sync::broadcast;
 use xlb::{AssetClass, AssetClassConfig, Discovery};
-use mshr::Keypair;
 
 use crate::{
     config::{expand_tilde, NodeConfig},
+    metrics_sink::MetricsSink,
     socket::server::{ClassMeta, NodeState},
 };
 
@@ -15,13 +16,12 @@ pub async fn run(config_path: &str, socket_path: &str) -> Result<()> {
 
     // Override socket path from config if not overridden by CLI flag.
     // (CLI --socket takes precedence; we just use socket_path as passed.)
-    let effective_socket = if socket_path == "/tmp/xlb-node.sock"
-        && cfg.node.socket != "/tmp/xlb-node.sock"
-    {
-        cfg.node.socket.as_str()
-    } else {
-        socket_path
-    };
+    let effective_socket =
+        if socket_path == "/tmp/xlb-node.sock" && cfg.node.socket != "/tmp/xlb-node.sock" {
+            cfg.node.socket.as_str()
+        } else {
+            socket_path
+        };
 
     let kp = Keypair::load_or_create().map_err(|e| anyhow::anyhow!("keypair: {e}"))?;
     let node_id = kp.node_id().to_string();
@@ -29,15 +29,22 @@ pub async fn run(config_path: &str, socket_path: &str) -> Result<()> {
     let mut classes: HashMap<String, AssetClass> = HashMap::new();
     let mut class_meta: HashMap<String, ClassMeta> = HashMap::new();
 
+    // R423-T7. Built BEFORE the classes because every class's observer is a
+    // handle to it — an AssetClass registered without one reports nothing, for
+    // the whole life of the process, silently.
+    let (event_tx, _) = broadcast::channel(256);
+    let metrics = MetricsSink::new(
+        node_id.clone(),
+        cfg.node.peer_class.clone(),
+        event_tx.clone(),
+        cfg.node.metrics_path.as_deref(),
+    )?;
+
     for cc in &cfg.classes {
         // AssetClassConfig.name is &'static str; leak each name once at startup.
         let static_name: &'static str = Box::leak(cc.name.clone().into_boxed_str());
 
-        let cache_dir = cc
-            .cache_dir
-            .as_deref()
-            .map(expand_tilde)
-            .map(PathBuf::from);
+        let cache_dir = cc.cache_dir.as_deref().map(expand_tilde).map(PathBuf::from);
 
         let discovery = if !cc.discovery.lan && !cc.discovery.swarm {
             Discovery::none()
@@ -54,6 +61,7 @@ pub async fn run(config_path: &str, socket_path: &str) -> Result<()> {
             discovery,
             cache_dir,
             cache_budget_bytes: cc.cache_budget_bytes,
+            observer: Some(metrics.observer()),
             ..Default::default()
         })
         .await
@@ -70,8 +78,6 @@ pub async fn run(config_path: &str, socket_path: &str) -> Result<()> {
         );
         classes.insert(cc.name.clone(), ac);
     }
-
-    let (event_tx, _) = broadcast::channel(256);
 
     let state = NodeState {
         node_id: node_id.clone(),

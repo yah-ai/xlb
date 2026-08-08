@@ -58,7 +58,11 @@ pub async fn run(
             outcome.already_present,
         );
     } else {
-        let verb = if outcome.already_present { "already seeded" } else { "seeded" };
+        let verb = if outcome.already_present {
+            "already seeded"
+        } else {
+            "seeded"
+        };
         println!(
             "{verb}: {class} {} ({} bytes)\n  key: {}\n  url: {public_url}",
             hash.to_hex(),

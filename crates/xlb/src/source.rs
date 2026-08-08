@@ -92,6 +92,23 @@ pub(crate) trait BlobSource: Send + Sync {
     }
 
     fn tier(&self) -> FetchTier;
+
+    /// Hex `NodeId` of the peer this source pulls from, when it *is* a peer.
+    ///
+    /// Default `None`, which is the correct and permanent answer for the cache
+    /// and CDN sources: neither has a NodeId. R423-T7 needs per-peer
+    /// attribution, and a synthesized identifier for a non-peer tier would be
+    /// worse than a missing one — it would look like real attribution.
+    fn peer_id(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Which source served a blob, and what it cost to get there.
+pub(crate) struct ChainHit {
+    pub tier: FetchTier,
+    pub peer_id: Option<String>,
+    pub bytes: Bytes,
 }
 
 /// Ordered list of [`BlobSource`]s. Tries each in [`FetchTier`] order.
@@ -107,7 +124,7 @@ impl FetchChain {
 
     /// Try each source in tier order; verify BLAKE3 on receipt.
     ///
-    /// Returns `(tier, bytes)` on the first verified hit. Returns `None`
+    /// Returns a [`ChainHit`] on the first verified hit. Returns `None`
     /// if no source has the blob or all sources returned mismatching bytes.
     /// Threads a [`ProgressSink`] to each source so the serving tier can
     /// report byte progress as it streams; pass `None` for no reporting.
@@ -115,14 +132,18 @@ impl FetchChain {
         &self,
         hash: &BlakeHash,
         sink: Option<&ProgressSink>,
-    ) -> Option<(FetchTier, Bytes)> {
+    ) -> Option<ChainHit> {
         for source in &self.sources {
             let Some(bytes) = source.fetch_raw_with_progress(hash, sink).await else {
                 continue;
             };
             if hash.verify(&bytes) {
                 tracing::debug!(tier = source.tier().label(), hash = %hash, "fetch hit");
-                return Some((source.tier(), bytes));
+                return Some(ChainHit {
+                    tier: source.tier(),
+                    peer_id: source.peer_id(),
+                    bytes,
+                });
             }
             tracing::warn!(
                 tier = source.tier().label(),

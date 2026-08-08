@@ -14,11 +14,11 @@ pub fn render(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // title bar
-            Constraint::Min(5),     // class table
-            Constraint::Length(1),  // governor line
-            Constraint::Min(4),     // recent fetches / events
-            Constraint::Length(1),  // help line
+            Constraint::Length(1), // title bar
+            Constraint::Min(5),    // class table
+            Constraint::Length(1), // governor line
+            Constraint::Min(4),    // recent fetches / events
+            Constraint::Length(1), // help line
         ])
         .split(area);
 
@@ -44,8 +44,7 @@ fn render_title(f: &mut Frame, app: &App, area: Rect) {
 
     let title = format!(" xlb-gui · node:{node_id}… · uptime {uptime} ");
     f.render_widget(
-        Paragraph::new(title)
-            .style(Style::default().bg(Color::DarkGray).fg(Color::White)),
+        Paragraph::new(title).style(Style::default().bg(Color::DarkGray).fg(Color::White)),
         area,
     );
 }
@@ -110,17 +109,28 @@ fn render_classes(f: &mut Frame, app: &App, area: Rect) {
 
 fn render_governor(f: &mut Frame, app: &App, area: Rect) {
     let gov_text = if let Some(stats) = app.class_stats.get(app.selected) {
-        let power = if stats.governor.on_battery { "battery" } else { "AC power" };
-        let metered = if stats.governor.metered { "metered" } else { "unmetered" };
-        let passive = if stats.governor.is_passive { " [PASSIVE]" } else { "" };
+        let power = if stats.governor.on_battery {
+            "battery"
+        } else {
+            "AC power"
+        };
+        let metered = if stats.governor.metered {
+            "metered"
+        } else {
+            "unmetered"
+        };
+        let passive = if stats.governor.is_passive {
+            " [PASSIVE]"
+        } else {
+            ""
+        };
         format!(" Governor ({}) : {power} · {metered}{passive}", stats.name)
     } else {
         " Governor: no class selected".to_string()
     };
 
     f.render_widget(
-        Paragraph::new(gov_text)
-            .style(Style::default().fg(Color::Yellow)),
+        Paragraph::new(gov_text).style(Style::default().fg(Color::Yellow)),
         area,
     );
 }
@@ -189,8 +199,7 @@ fn render_events(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     f.render_widget(
-        Paragraph::new(event_lines)
-            .block(Block::default().title(" Events ").borders(Borders::ALL)),
+        Paragraph::new(event_lines).block(Block::default().title(" Events ").borders(Borders::ALL)),
         chunks[1],
     );
 }

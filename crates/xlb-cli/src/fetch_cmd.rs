@@ -5,12 +5,7 @@ use crate::socket::{
     protocol::{Command, Response},
 };
 
-pub async fn run(
-    class: &str,
-    hash: &str,
-    out: Option<&str>,
-    socket_path: &str,
-) -> Result<()> {
+pub async fn run(class: &str, hash: &str, out: Option<&str>, socket_path: &str) -> Result<()> {
     let mut client = Client::connect(socket_path).await?;
     let cmd = Command::Fetch {
         class: class.to_string(),

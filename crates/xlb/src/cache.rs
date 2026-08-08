@@ -77,10 +77,7 @@ impl Cache {
     /// with `budget_bytes` LRU eviction budget. The directory is created if
     /// it doesn't exist; existing entries on disk are picked up into the
     /// LRU index (cache survives restart).
-    pub(crate) fn new(
-        cache_dir: Option<&Path>,
-        budget_bytes: u64,
-    ) -> std::io::Result<Self> {
+    pub(crate) fn new(cache_dir: Option<&Path>, budget_bytes: u64) -> std::io::Result<Self> {
         match cache_dir {
             None => Ok(Self::Mem(MemCache::default())),
             Some(dir) => Ok(Self::Disk(DiskCache::open(dir, budget_bytes)?)),
@@ -101,11 +98,7 @@ impl Cache {
     /// Insert `bytes` for `hash`. Disk-backed: writes atomically via
     /// temp+rename and evicts oldest LRU entries until the on-disk footprint
     /// is within `budget_bytes`.
-    pub(crate) async fn put(
-        &self,
-        hash: BlakeHash,
-        bytes: Bytes,
-    ) -> std::io::Result<()> {
+    pub(crate) async fn put(&self, hash: BlakeHash, bytes: Bytes) -> std::io::Result<()> {
         match self {
             Self::Mem(m) => {
                 m.put(hash, bytes).await;
@@ -193,7 +186,9 @@ impl LruState {
         let mut evicted = Vec::new();
         // Evict oldest entries until the new write fits.
         while self.total_bytes + size > budget {
-            let Some(victim) = self.lru.pop_front() else { break };
+            let Some(victim) = self.lru.pop_front() else {
+                break;
+            };
             if let Some(victim_size) = self.entries.remove(&victim) {
                 self.total_bytes = self.total_bytes.saturating_sub(victim_size);
             }
@@ -236,7 +231,9 @@ impl DiskCache {
                 let _ = std::fs::remove_file(&path);
                 continue;
             }
-            let Ok(hash) = BlakeHash::from_hex(name) else { continue };
+            let Ok(hash) = BlakeHash::from_hex(name) else {
+                continue;
+            };
             let Ok(meta) = entry.metadata() else { continue };
             if !meta.is_file() {
                 continue;
@@ -257,7 +254,9 @@ impl DiskCache {
         // shrunk between runs. Evict oldest until it fits.
         let dir = dir.to_path_buf();
         while state.total_bytes > budget_bytes {
-            let Some(victim) = state.lru.pop_front() else { break };
+            let Some(victim) = state.lru.pop_front() else {
+                break;
+            };
             if let Some(size) = state.entries.remove(&victim) {
                 state.total_bytes = state.total_bytes.saturating_sub(size);
             }
@@ -477,7 +476,10 @@ mod tests {
         cache.put(hc, c.clone()).await.unwrap();
 
         assert!(cache.contains(&ha).await, "A was touched, should survive");
-        assert!(!cache.contains(&hb).await, "B is now oldest, should be evicted");
+        assert!(
+            !cache.contains(&hb).await,
+            "B is now oldest, should be evicted"
+        );
         assert!(cache.contains(&hc).await);
         std::fs::remove_dir_all(&dir).ok();
     }

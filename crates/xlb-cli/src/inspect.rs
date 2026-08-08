@@ -4,7 +4,9 @@ use crate::socket::{client::Client, protocol::Response};
 
 pub async fn run(socket_path: &str) -> Result<()> {
     let mut client = Client::connect(socket_path).await?;
-    let resp = client.roundtrip(&crate::socket::protocol::Command::Inspect).await?;
+    let resp = client
+        .roundtrip(&crate::socket::protocol::Command::Inspect)
+        .await?;
 
     match resp {
         Response::NodeInfo(info) => {

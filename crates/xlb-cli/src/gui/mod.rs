@@ -79,8 +79,8 @@ async fn poll_loop(socket_path: String, tx: mpsc::UnboundedSender<Update>) {
                         // Fetch stats for each class.
                         for name in &class_names {
                             if let Ok(mut c) = Client::connect(&socket_path).await {
-                                if let Ok(Response::ClassStats(stats)) =
-                                    c.roundtrip(&Command::ClassStats {
+                                if let Ok(Response::ClassStats(stats)) = c
+                                    .roundtrip(&Command::ClassStats {
                                         class: name.clone(),
                                     })
                                     .await

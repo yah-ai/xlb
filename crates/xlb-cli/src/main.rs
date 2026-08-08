@@ -4,12 +4,16 @@ mod config;
 mod fetch_cmd;
 mod gui;
 mod inspect;
+mod metrics_sink;
 mod seed_cmd;
 mod serve;
 mod socket;
 
 #[derive(Parser)]
-#[command(name = "xlb", about = "xlb — serve a node, inspect state, fetch blobs, view live TUI")]
+#[command(
+    name = "xlb",
+    about = "xlb — serve a node, inspect state, fetch blobs, view live TUI"
+)]
 struct Cli {
     /// Path to the Unix domain socket used by the running node.
     #[arg(short, long, global = true, default_value_t = default_socket())]
@@ -89,8 +93,12 @@ async fn main() -> anyhow::Result<()> {
             fetch_cmd::run(&class, &hash, out.as_deref(), &cli.socket).await
         }
         Cmd::Gui => gui::run(&cli.socket).await,
-        Cmd::Seed { class, file, config, manifest, json } => {
-            seed_cmd::run(&class, &file, &config, manifest.as_deref(), json).await
-        }
+        Cmd::Seed {
+            class,
+            file,
+            config,
+            manifest,
+            json,
+        } => seed_cmd::run(&class, &file, &config, manifest.as_deref(), json).await,
     }
 }

@@ -51,9 +51,7 @@ impl App {
             }
 
             Update::ClassStats(stats) => {
-                if let Some(existing) =
-                    self.class_stats.iter_mut().find(|s| s.name == stats.name)
-                {
+                if let Some(existing) = self.class_stats.iter_mut().find(|s| s.name == stats.name) {
                     *existing = stats;
                 } else {
                     self.class_stats.push(stats);
@@ -62,7 +60,13 @@ impl App {
 
             Update::Event(ev) => {
                 let (text, ok, ts) = match &ev {
-                    NodeEvent::FetchCompleted { class, hash, bytes, tier, elapsed_ms } => {
+                    NodeEvent::FetchCompleted {
+                        class,
+                        hash,
+                        bytes,
+                        tier,
+                        elapsed_ms,
+                    } => {
                         let hash_short = &hash[..hash.len().min(8)];
                         (
                             format!(
@@ -72,7 +76,11 @@ impl App {
                             epoch_secs(),
                         )
                     }
-                    NodeEvent::FetchFailed { class, hash, reason } => {
+                    NodeEvent::FetchFailed {
+                        class,
+                        hash,
+                        reason,
+                    } => {
                         let hash_short = &hash[..hash.len().min(8)];
                         (
                             format!("{class:<20} {hash_short}… FAILED: {reason}"),
@@ -82,27 +90,72 @@ impl App {
                     }
                     NodeEvent::FetchStarted { class, hash } => {
                         let hash_short = &hash[..hash.len().min(8)];
-                        (format!("{class:<20} {hash_short}… fetching…"), true, epoch_secs())
+                        (
+                            format!("{class:<20} {hash_short}… fetching…"),
+                            true,
+                            epoch_secs(),
+                        )
                     }
                     NodeEvent::PeerJoined { class, node_id } => {
                         let id_short = &node_id[..node_id.len().min(8)];
-                        (format!("{class:<20} peer joined  {id_short}…"), true, epoch_secs())
+                        (
+                            format!("{class:<20} peer joined  {id_short}…"),
+                            true,
+                            epoch_secs(),
+                        )
                     }
                     NodeEvent::PeerLeft { class, node_id } => {
                         let id_short = &node_id[..node_id.len().min(8)];
-                        (format!("{class:<20} peer left    {id_short}…"), true, epoch_secs())
+                        (
+                            format!("{class:<20} peer left    {id_short}…"),
+                            true,
+                            epoch_secs(),
+                        )
                     }
                     NodeEvent::GovernorChanged { class, is_passive } => (
-                        format!("{class:<20} governor → {}", if *is_passive { "passive" } else { "active" }),
+                        format!(
+                            "{class:<20} governor → {}",
+                            if *is_passive { "passive" } else { "active" }
+                        ),
                         *is_passive,
                         epoch_secs(),
                     ),
+                    // R423-T7. Shown with its tier and peer because "which tier
+                    // served this" is the question the dashboard exists to
+                    // answer; a miss is rendered as not-ok so it reads as the
+                    // cost it is.
+                    NodeEvent::FetchMetric(m) => {
+                        let hash_short = &m.blake3[..m.blake3.len().min(8)];
+                        let from = match &m.peer_id {
+                            Some(p) => format!(" ← {}…", &p[..p.len().min(8)]),
+                            None => String::new(),
+                        };
+                        (
+                            format!(
+                                "{:<20} {hash_short}… {:>10} {:<6}{from} ({}ms)",
+                                m.class, m.bytes_served, m.tier_source, m.duration_ms
+                            ),
+                            m.tier_source != "miss",
+                            m.timestamp_secs,
+                        )
+                    }
                 };
 
-                self.push_event(EventLine { timestamp_secs: ts, text, ok });
+                self.push_event(EventLine {
+                    timestamp_secs: ts,
+                    text,
+                    ok,
+                });
 
                 // Also update recent_fetches in class_stats
-                if let NodeEvent::FetchCompleted { class, hash, bytes, tier, elapsed_ms } = ev {
+                if let NodeEvent::FetchCompleted {
+                    class,
+                    hash,
+                    bytes,
+                    tier,
+                    elapsed_ms,
+                } = ev
+                {
                     let record = FetchRecord {
                         timestamp_secs: epoch_secs(),
                         class: class.clone(),

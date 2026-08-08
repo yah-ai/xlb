@@ -15,23 +15,21 @@
 
 pub mod bandwidth;
 pub(crate) mod cache;
+pub mod metrics;
 pub mod seed;
 pub(crate) mod source;
-pub(crate) mod verify;
 pub mod testing;
 pub mod transport;
+pub(crate) mod verify;
 
 pub use bandwidth::BandwidthGovernor;
+pub use metrics::{FetchObserver, FetchReport};
 pub use seed::{derive_key, seed_blob, R2Target, SeedOutcome};
-pub use source::{FetchProgress, FetchTier, ProgressSink};
 pub(crate) use source::BlobSource;
+pub use source::{FetchProgress, FetchTier, ProgressSink};
 
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::Arc,
-};
 use bytes::Bytes;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::cache::Cache;
@@ -78,8 +76,7 @@ impl BlakeHash {
     }
 
     pub fn from_hex(s: &str) -> Result<Self> {
-        let raw =
-            hex::decode(s).map_err(|_| Error::InvalidHash(s.to_string()))?;
+        let raw = hex::decode(s).map_err(|_| Error::InvalidHash(s.to_string()))?;
         let arr: [u8; 32] = raw
             .try_into()
             .map_err(|_| Error::InvalidHash(format!("expected 32 bytes: {s}")))?;
@@ -151,7 +148,10 @@ pub struct BwCaps {
 impl BwCaps {
     /// Passive peers fetch but never upload.
     pub fn passive() -> Self {
-        Self { up_mbit: 0, down_mbit: 50 }
+        Self {
+            up_mbit: 0,
+            down_mbit: 50,
+        }
     }
 }
 
@@ -178,7 +178,10 @@ impl BandwidthPolicy {
     }
 
     pub fn caps_for(&self, tier: PeerTier) -> BwCaps {
-        self.roles.get(&tier).copied().unwrap_or_else(BwCaps::passive)
+        self.roles
+            .get(&tier)
+            .copied()
+            .unwrap_or_else(BwCaps::passive)
     }
 }
 
@@ -199,25 +202,34 @@ pub struct Discovery {
 
 impl Default for Discovery {
     fn default() -> Self {
-        Self { lan: true, swarm: true, relays: vec![] }
+        Self {
+            lan: true,
+            swarm: true,
+            relays: vec![],
+        }
     }
 }
 
 impl Discovery {
-    pub fn with_relays(
-        mut self,
-        relays: impl IntoIterator<Item = impl Into<String>>,
-    ) -> Self {
+    pub fn with_relays(mut self, relays: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.relays = relays.into_iter().map(Into::into).collect();
         self
     }
 
     pub fn lan_only() -> Self {
-        Self { lan: true, swarm: false, relays: vec![] }
+        Self {
+            lan: true,
+            swarm: false,
+            relays: vec![],
+        }
     }
 
     pub fn none() -> Self {
-        Self { lan: false, swarm: false, relays: vec![] }
+        Self {
+            lan: false,
+            swarm: false,
+            relays: vec![],
+        }
     }
 }
 
@@ -237,6 +249,12 @@ pub struct AssetClassConfig {
     pub cache_dir: Option<PathBuf>,
     /// LRU eviction budget for cached assets, in bytes.
     pub cache_budget_bytes: u64,
+    /// Called once per completed fetch with a [`FetchReport`] (R423-T7).
+    ///
+    /// `None` — the default — means no instrumentation and no cost. Set it to
+    /// measure which tier is actually serving traffic; W160's 50%-swarm-hit
+    /// cost envelope is unverified until something does.
+    pub observer: Option<FetchObserver>,
 }
 
 impl Default for AssetClassConfig {
@@ -249,6 +267,7 @@ impl Default for AssetClassConfig {
             bandwidth: BandwidthPolicy::default(),
             cache_dir: None,
             cache_budget_bytes: 1024 * 1024 * 1024,
+            observer: None,
         }
     }
 }
@@ -311,10 +330,7 @@ impl AssetClass {
         // disk-backed at the given path with LRU eviction gated on
         // `cache_budget_bytes`. The latter survives process restart, which
         // is the whole reason this layer exists (see W160 F3).
-        let cache = Cache::new(
-            config.cache_dir.as_deref(),
-            config.cache_budget_bytes,
-        )?;
+        let cache = Cache::new(config.cache_dir.as_deref(), config.cache_budget_bytes)?;
 
         Ok(Self(Arc::new(ClassInner {
             config,
@@ -333,7 +349,10 @@ impl AssetClass {
 
     /// Return a handle to a specific asset within this class.
     pub fn asset(&self, hash: BlakeHash) -> Asset {
-        Asset { class: self.clone(), hash }
+        Asset {
+            class: self.clone(),
+            hash,
+        }
     }
 
     /// The configured name of this class.
@@ -380,13 +399,93 @@ impl AssetClass {
         if let Ok(mut sources) = self.0.sources.try_write() {
             sources.push(source);
         } else {
-            tracing::warn!(class = self.name(), "add_source: lock contended, source dropped");
+            tracing::warn!(
+                class = self.name(),
+                "add_source: lock contended, source dropped"
+            );
         }
     }
 
     /// Internal: run the fetch chain for `hash`.
     pub(crate) async fn fetch_bytes(&self, hash: BlakeHash) -> Result<Bytes> {
         self.fetch_bytes_with_progress(hash, None).await
+    }
+
+    /// Internal: run the fetch chain and hand back the metric alongside the
+    /// bytes (R423-T7). The observer, if any, has already been called.
+    pub(crate) async fn fetch_bytes_reported(
+        &self,
+        hash: BlakeHash,
+        sink: Option<ProgressSink>,
+    ) -> (Result<Bytes>, FetchReport) {
+        let started = std::time::Instant::now();
+
+        // 1. Local cache — fast path. Disk-backed cache re-verifies BLAKE3
+        //    on read; mem-backed is a HashMap lookup.
+        if let Some(bytes) = self.0.cache.get(&hash).await {
+            tracing::trace!(%hash, "cache hit");
+            let report = self.report(
+                hash,
+                Some(FetchTier::Cache),
+                None,
+                bytes.len() as u64,
+                started,
+            );
+            return (Ok(bytes), report);
+        }
+
+        // 2. Clone source handles so we can release the lock before awaiting.
+        let sources: Vec<Arc<dyn BlobSource>> = self.0.sources.read().await.clone();
+
+        let chain = source::FetchChain::new(sources);
+        match chain.fetch_with_progress(&hash, sink.as_ref()).await {
+            Some(hit) => {
+                // Cache write failures are non-fatal: the fetched bytes are
+                // verified, so we can still return them. A disk-full error
+                // means future restarts won't have this entry, but the current
+                // request succeeds.
+                if let Err(e) = self.0.cache.put(hash, hit.bytes.clone()).await {
+                    tracing::warn!(%hash, "cache write failed: {e}");
+                }
+                let report = self.report(
+                    hash,
+                    Some(hit.tier),
+                    hit.peer_id,
+                    hit.bytes.len() as u64,
+                    started,
+                );
+                (Ok(hit.bytes), report)
+            }
+            // A MISS IS REPORTED, not swallowed. A hit rate computed only over
+            // successful fetches has no denominator.
+            None => {
+                let report = self.report(hash, None, None, 0, started);
+                (Err(Error::FetchFailed(hash)), report)
+            }
+        }
+    }
+
+    /// Build a [`FetchReport`] and hand it to the class observer.
+    fn report(
+        &self,
+        hash: BlakeHash,
+        tier: Option<FetchTier>,
+        peer_id: Option<String>,
+        bytes_served: u64,
+        started: std::time::Instant,
+    ) -> FetchReport {
+        let report = FetchReport {
+            class: self.0.config.name,
+            hash,
+            tier,
+            peer_id,
+            bytes_served,
+            duration_ms: started.elapsed().as_millis() as u64,
+        };
+        if let Some(observer) = &self.0.config.observer {
+            observer(&report);
+        }
+        report
     }
 
     /// Internal: run the fetch chain for `hash`, reporting byte progress.
@@ -399,30 +498,11 @@ impl AssetClass {
         hash: BlakeHash,
         sink: Option<ProgressSink>,
     ) -> Result<Bytes> {
-        // 1. Local cache — fast path. Disk-backed cache re-verifies BLAKE3
-        //    on read; mem-backed is a HashMap lookup.
-        if let Some(bytes) = self.0.cache.get(&hash).await {
-            tracing::trace!(%hash, "cache hit");
-            return Ok(bytes);
-        }
-
-        // 2. Clone source handles so we can release the lock before awaiting.
-        let sources: Vec<Arc<dyn BlobSource>> =
-            self.0.sources.read().await.clone();
-
-        let chain = source::FetchChain::new(sources);
-        if let Some((_tier, bytes)) = chain.fetch_with_progress(&hash, sink.as_ref()).await {
-            // Cache write failures are non-fatal: the fetched bytes are
-            // verified, so we can still return them. A disk-full error
-            // means future restarts won't have this entry, but the current
-            // request succeeds.
-            if let Err(e) = self.0.cache.put(hash, bytes.clone()).await {
-                tracing::warn!(%hash, "cache write failed: {e}");
-            }
-            return Ok(bytes);
-        }
-
-        Err(Error::FetchFailed(hash))
+        // Delegates rather than duplicating the chain walk: one code path means
+        // the observer cannot be live on some entry points and dead on others,
+        // which is exactly how instrumentation ends up reporting a partial
+        // hit rate that nobody knows is partial.
+        self.fetch_bytes_reported(hash, sink).await.0
     }
 }
 
@@ -449,7 +529,23 @@ impl Asset {
     /// [`FetchProgress`] against `Content-Length`. Instant tiers (cache)
     /// return without ever invoking `sink`.
     pub async fn fetch_with_progress(&self, sink: ProgressSink) -> Result<Bytes> {
-        self.class.fetch_bytes_with_progress(self.hash, Some(sink)).await
+        self.class
+            .fetch_bytes_with_progress(self.hash, Some(sink))
+            .await
+    }
+
+    /// Fetch the blob and return the [`FetchReport`] alongside it (R423-T7).
+    ///
+    /// Identical work to [`fetch`](Self::fetch); the difference is that the
+    /// caller gets to see which tier served it, from which peer, and how long
+    /// the whole chain walk took. A caller that just wants bytes should keep
+    /// using `fetch`.
+    ///
+    /// The report is produced — and the class observer called — on a miss too,
+    /// with `tier: None`; the `Result` is the failure and the report is the
+    /// record of it.
+    pub async fn fetch_reported(&self) -> (Result<Bytes>, FetchReport) {
+        self.class.fetch_bytes_reported(self.hash, None).await
     }
 
     /// Returns `true` if this blob is in the local cache (in-memory or

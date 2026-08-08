@@ -2,9 +2,7 @@
 //!
 //!   cargo run --example register_class
 
-use xlb::{
-    AssetClass, AssetClassConfig, BandwidthPolicy, BwCaps, Discovery, PeerTier, SeedRole,
-};
+use xlb::{AssetClass, AssetClassConfig, BandwidthPolicy, BwCaps, Discovery, PeerTier, SeedRole};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,13 +19,44 @@ async fn main() -> anyhow::Result<()> {
         cdn_fallback: Some("https://cdn.example.com/assets/{blake3}".into()),
         discovery: Discovery::default(), // LAN (mDNS) + swarm (iroh-relay) + static seeds
         bandwidth: BandwidthPolicy::default()
-            .role(PeerTier::Cloud, BwCaps { up_mbit: 1000, down_mbit: 10_000 })
-            .role(PeerTier::Camp, BwCaps { up_mbit: 10, down_mbit: 100 })
-            .role(PeerTier::Workstation, BwCaps { up_mbit: 5, down_mbit: 50 })
+            .role(
+                PeerTier::Cloud,
+                BwCaps {
+                    up_mbit: 1000,
+                    down_mbit: 10_000,
+                },
+            )
+            .role(
+                PeerTier::Camp,
+                BwCaps {
+                    up_mbit: 10,
+                    down_mbit: 100,
+                },
+            )
+            .role(
+                PeerTier::Workstation,
+                BwCaps {
+                    up_mbit: 5,
+                    down_mbit: 50,
+                },
+            )
             .role(PeerTier::Mobile, BwCaps::passive()),
         // Persistent disk cache.  Pass `None` for an in-memory-only cache.
         cache_dir: None,
         cache_budget_bytes: 1024 * 1024 * 1024, // 1 GB LRU
+        // Per-fetch metrics. `None` = no instrumentation, no cost.
+        // Wire one up to learn which tier is actually serving your traffic —
+        // a swarm that turns out to serve 5% instead of the assumed 50% is a
+        // CDN bill, and this callback is the only thing that will tell you.
+        observer: Some(std::sync::Arc::new(|r: &xlb::FetchReport| {
+            println!(
+                "fetched {} from {} — {} bytes in {}ms",
+                r.hash.to_hex(),
+                r.tier_label(),
+                r.bytes_served,
+                r.duration_ms,
+            );
+        })),
     })
     .await?;
 
@@ -37,17 +66,26 @@ async fn main() -> anyhow::Result<()> {
     //   server camp      → Participant / Camp
     //   desktop install → Participant / Workstation
     //   mobile / metered → Passive
-    class.set_role(SeedRole::Participant, PeerTier::Workstation).await?;
+    class
+        .set_role(SeedRole::Participant, PeerTier::Workstation)
+        .await?;
 
     // Check whether the auto-governors have forced passive mode.
     // probe_os() reads the OS power state at startup; call it again on
     // platform power-change events (e.g. NSWorkspaceDidChangeNotification).
     let gov = class.governor();
     let caps = gov.effective_caps(PeerTier::Workstation);
-    let seeding = if gov.is_passive() { "paused (battery or metered)" } else { "active" };
+    let seeding = if gov.is_passive() {
+        "paused (battery or metered)"
+    } else {
+        "active"
+    };
 
     println!("class:     {}", class.name());
-    println!("seeding:   {} — {} Mbit/s up, {} Mbit/s down", seeding, caps.up_mbit, caps.down_mbit);
+    println!(
+        "seeding:   {} — {} Mbit/s up, {} Mbit/s down",
+        seeding, caps.up_mbit, caps.down_mbit
+    );
     println!();
     println!("To fetch a blob once you have its BLAKE3 hash:");
     println!("  let hash: xlb::BlakeHash = \"<64-char hex>\".parse()?;");

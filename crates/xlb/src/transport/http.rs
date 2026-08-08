@@ -41,7 +41,10 @@ impl HttpFetcher {
             // to follow them closes a CDN-driven redirect-SSRF vector.
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
-        Ok(Self { url_template: url_template.into(), client })
+        Ok(Self {
+            url_template: url_template.into(),
+            client,
+        })
     }
 
     fn url_for(&self, hash: &BlakeHash) -> String {
@@ -200,16 +203,33 @@ mod tests {
         let sink: ProgressSink = Arc::new(move |p| captured.lock().unwrap().push(p));
 
         let result = fetcher.fetch_raw_with_progress(&hash, Some(&sink)).await;
-        assert_eq!(result.as_deref(), Some(&data[..]), "streamed bytes must verify");
+        assert_eq!(
+            result.as_deref(),
+            Some(&data[..]),
+            "streamed bytes must verify"
+        );
 
         let events = events.lock().unwrap();
-        assert!(!events.is_empty(), "expected at least one progress callback");
+        assert!(
+            !events.is_empty(),
+            "expected at least one progress callback"
+        );
         let last = events.last().unwrap();
-        assert_eq!(last.bytes_so_far, data.len() as u64, "final progress = full body");
-        assert_eq!(last.total, Some(data.len() as u64), "Content-Length surfaced");
+        assert_eq!(
+            last.bytes_so_far,
+            data.len() as u64,
+            "final progress = full body"
+        );
+        assert_eq!(
+            last.total,
+            Some(data.len() as u64),
+            "Content-Length surfaced"
+        );
         assert_eq!(last.tier, FetchTier::Cdn);
         // Cumulative byte count is monotonically non-decreasing.
-        assert!(events.windows(2).all(|w| w[0].bytes_so_far <= w[1].bytes_so_far));
+        assert!(events
+            .windows(2)
+            .all(|w| w[0].bytes_so_far <= w[1].bytes_so_far));
     }
 
     #[tokio::test]

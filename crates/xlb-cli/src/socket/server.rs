@@ -5,10 +5,7 @@ use anyhow::Result;
 use tokio::{net::UnixListener, sync::broadcast};
 use xlb::AssetClass;
 
-use super::{
-    protocol::*,
-    read_frame, write_frame,
-};
+use super::{protocol::*, read_frame, write_frame};
 
 /// Shared state owned by the serve daemon, cloned into each connection task.
 #[derive(Clone)]
@@ -83,10 +80,7 @@ pub async fn listen(state: NodeState, socket_path: &str) -> Result<()> {
     }
 }
 
-async fn handle_conn(
-    state: NodeState,
-    mut stream: tokio::net::UnixStream,
-) -> Result<()> {
+async fn handle_conn(state: NodeState, mut stream: tokio::net::UnixStream) -> Result<()> {
     // Authenticate the peer by uid: the control socket only serves the daemon's
     // own user. SO_PEERCRED is kernel-supplied and cannot be spoofed.
     let our_uid = unsafe { libc::getuid() };
@@ -153,7 +147,11 @@ async fn handle_conn(
                 write_frame(&mut writer, &Response::Ok).await?;
             }
 
-            Command::SetBandwidth { class: _, upload_kbps: _, download_kbps: _ } => {
+            Command::SetBandwidth {
+                class: _,
+                upload_kbps: _,
+                download_kbps: _,
+            } => {
                 write_frame(&mut writer, &Response::Ok).await?;
             }
         }
@@ -176,7 +174,9 @@ fn build_stats(state: &NodeState, class_name: &str) -> ClassStats {
 
     ClassStats {
         name: class_name.to_string(),
-        role: meta.map(|m| m.role.clone()).unwrap_or_else(|| "unknown".into()),
+        role: meta
+            .map(|m| m.role.clone())
+            .unwrap_or_else(|| "unknown".into()),
         peer_count: 0,
         cache_bytes: 0,
         cache_budget_bytes: meta.map(|m| m.cache_budget_bytes).unwrap_or(0),
@@ -197,16 +197,22 @@ async fn do_fetch(
     hash_str: &str,
     out: Option<&str>,
 ) -> Response {
-    use xlb::BlakeHash;
     use std::time::Instant;
+    use xlb::BlakeHash;
 
     let Some(ac) = state.classes.get(class_name) else {
-        return Response::Error { message: format!("unknown class: {class_name}") };
+        return Response::Error {
+            message: format!("unknown class: {class_name}"),
+        };
     };
 
     let hash = match BlakeHash::from_hex(hash_str) {
         Ok(h) => h,
-        Err(e) => return Response::Error { message: e.to_string() },
+        Err(e) => {
+            return Response::Error {
+                message: e.to_string(),
+            }
+        }
     };
 
     let _ = state.event_tx.send(NodeEvent::FetchStarted {
@@ -215,7 +221,13 @@ async fn do_fetch(
     });
 
     let start = Instant::now();
-    match ac.asset(hash).fetch().await {
+    // R423-T7: `fetch_reported` instead of `fetch`, so `tier` below is the tier
+    // that ACTUALLY served the blob. It used to be the constant string
+    // "fetched", which is the same amount of information as no field at all —
+    // and it was the field a hit-rate dashboard would have been built on.
+    let (result, report) = ac.asset(hash).fetch_reported().await;
+    let tier = report.tier_label().to_string();
+    match result {
         Ok(bytes) => {
             let elapsed_ms = start.elapsed().as_millis() as u64;
             let saved_to = if let Some(path) = out {
@@ -235,7 +247,7 @@ async fn do_fetch(
                 class: class_name.to_string(),
                 hash: hash_str.to_string(),
                 bytes: bytes.len() as u64,
-                tier: "fetched".into(),
+                tier: tier.clone(),
                 elapsed_ms,
             });
 
@@ -243,7 +255,7 @@ async fn do_fetch(
                 class: class_name.to_string(),
                 hash: hash_str.to_string(),
                 bytes: bytes.len() as u64,
-                tier: "fetched".into(),
+                tier,
                 elapsed_ms,
                 saved_to,
             })
@@ -254,7 +266,9 @@ async fn do_fetch(
                 hash: hash_str.to_string(),
                 reason: e.to_string(),
             });
-            Response::Error { message: e.to_string() }
+            Response::Error {
+                message: e.to_string(),
+            }
         }
     }
 }
