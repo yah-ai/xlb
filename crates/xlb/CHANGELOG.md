@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- iroh `=1.0.0-rc.0` → `1.3`, and iroh-blobs 0.101 → 0.103 (the first
+  iroh-blobs on iroh 1.x). Moves in lockstep with mshr, which xlb builds on.
+
 ## [0.1.0] - 2026-05-11
 
 ### Added
