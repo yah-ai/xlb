@@ -196,12 +196,38 @@ impl R2Target {
         Ok(())
     }
 
+    /// GET the object. `Ok(Some(bytes))` on 2xx, `Ok(None)` on 404, error on
+    /// any other status.
+    pub async fn get_object(&self, key: &str) -> anyhow::Result<Option<Bytes>> {
+        let payload_hash = sha256_hex(b"");
+        let (auth, amzdate) = self.sign("GET", key, &payload_hash, now_unix());
+        let resp = self
+            .client
+            .get(self.url_for(key))
+            .header("host", self.host())
+            .header("x-amz-content-sha256", &payload_hash)
+            .header("x-amz-date", &amzdate)
+            .header("authorization", auth)
+            .send()
+            .await?;
+
+        if resp.status() == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("GET {key} → {status}: {body}");
+        }
+        Ok(Some(resp.bytes().await?))
+    }
+
     /// AWS Signature V4 for a single-object request. Returns the
     /// `Authorization` header value and the `x-amz-date` value (the caller
     /// must send the same `x-amz-date` it was signed with).
     ///
     /// Signed headers are fixed at `host;x-amz-content-sha256;x-amz-date`,
-    /// which is sufficient for object PUT/HEAD with an in-memory payload hash.
+    /// which is sufficient for object PUT/HEAD/GET with an in-memory payload hash.
     fn sign(
         &self,
         method: &str,
@@ -449,6 +475,15 @@ mod tests {
         status: u16,
         extra_headers: &'static str,
     ) -> (String, std::sync::mpsc::Receiver<(String, Vec<u8>)>) {
+        mock_server_with_body(status, extra_headers, b"")
+    }
+
+    /// As [`mock_server`], replying with `reply_body` as the response body.
+    fn mock_server_with_body(
+        status: u16,
+        extra_headers: &'static str,
+        reply_body: &'static [u8],
+    ) -> (String, std::sync::mpsc::Receiver<(String, Vec<u8>)>) {
         use std::io::{Read, Write};
         use std::net::TcpListener;
 
@@ -484,8 +519,9 @@ mod tests {
                         404 => "404 Not Found",
                         _ => "500 Internal Server Error",
                     };
-                    let resp = format!("HTTP/1.1 {line}\r\n{extra_headers}Content-Length: 0\r\nConnection: close\r\n\r\n");
+                    let resp = format!("HTTP/1.1 {line}\r\n{extra_headers}Content-Length: {}\r\nConnection: close\r\n\r\n", reply_body.len());
                     let _ = stream.write_all(resp.as_bytes());
+                    let _ = stream.write_all(reply_body);
                     let _ = tx.send((head, body));
                     break;
                 }
@@ -542,6 +578,30 @@ mod tests {
         // Our mock replies Content-Length: 0, so size resolves to 0; presence is
         // what matters here (Some vs None).
         assert_eq!(t.head_object("yah-cli/present").await.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn get_object_returns_body_none_on_404_and_errors_otherwise() {
+        let (base, rx) = mock_server_with_body(200, "", b"the stored bytes");
+        let t = R2Target::new(base, "yah-dev", "auto", "AKID", "SECRET").unwrap();
+        let got = t.get_object("nt-projects/abc.bin").await.unwrap();
+        assert_eq!(got.as_deref(), Some(&b"the stored bytes"[..]));
+        let (head, _) = rx.recv().unwrap();
+        assert_eq!(
+            head.lines().next().unwrap(),
+            "GET /yah-dev/nt-projects/abc.bin HTTP/1.1"
+        );
+        assert!(head
+            .to_lowercase()
+            .contains("authorization: aws4-hmac-sha256 credential=akid/"));
+
+        let (base, _rx) = mock_server(404, "");
+        let t = R2Target::new(base, "yah-dev", "auto", "AKID", "SECRET").unwrap();
+        assert_eq!(t.get_object("nt-projects/missing").await.unwrap(), None);
+
+        let (base, _rx) = mock_server(500, "");
+        let t = R2Target::new(base, "yah-dev", "auto", "AKID", "SECRET").unwrap();
+        assert!(t.get_object("nt-projects/boom").await.is_err());
     }
 
     #[tokio::test]
